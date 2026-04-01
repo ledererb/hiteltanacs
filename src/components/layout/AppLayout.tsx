@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, ListTodo, FileText, Settings, Users, LogOut, Loader2 } from 'lucide-react';
+import { Home, ListTodo, Settings, Users, LogOut, Loader2, Banknote } from 'lucide-react';
 import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
@@ -36,20 +36,20 @@ export default function AppLayout() {
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Ügyfelek', href: '/dashboard', icon: Users },
     { name: 'Kanban', href: '/kanban', icon: ListTodo },
-    { name: 'Iratok', href: '#', icon: FileText },
-    { name: 'Beállítások', href: '#', icon: Settings },
+    { name: 'Pénzügyek', href: '/billing', icon: Banknote },
+    { name: 'Beállítások', href: '/settings', icon: Settings },
   ];
 
   if (isInitializing) {
     return (
-       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
            <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
        </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors">
       {/* Sidebar */}
       <div className="w-64 bg-slate-900 text-white flex flex-col pt-8 pb-4">
         <div className="px-6 pb-8">
@@ -95,10 +95,10 @@ export default function AppLayout() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white/70 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 py-4 z-10 sticky top-0">
+        <header className="bg-white/70 dark:bg-slate-950/70 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-8 py-4 z-10 sticky top-0 transition-colors">
           <div className="flex items-center space-x-4">
                {/* Contextual search or breadcrumbs could go here */}
-               <h2 className="text-xl font-semibold text-slate-800 tracking-tight">
+               <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100 tracking-tight transition-colors">
                 {navigation.find(x => location.pathname.includes(x.href))?.name || 'EnergiApp'}
                </h2>
           </div>

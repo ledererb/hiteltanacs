@@ -4,6 +4,8 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Kanban from './pages/Kanban';
 import ClientDetails from './pages/ClientDetails';
+import Billing from './pages/Billing';
+import Settings from './pages/Settings';
 
 function App() {
   return (
@@ -15,6 +17,8 @@ function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="clients/:id" element={<ClientDetails />} />
           <Route path="kanban" element={<Kanban />} />
+          <Route path="billing" element={<Billing />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </Router>
