@@ -1,9 +1,36 @@
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Home, ListTodo, FileText, Settings, Users, LogOut } from 'lucide-react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Home, ListTodo, FileText, Settings, Users, LogOut, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
+import { useEffect, useState } from 'react';
+import { supabase } from '../../lib/supabase';
 
 export default function AppLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        navigate('/login');
+      }
+      setIsInitializing(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        navigate('/login');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
@@ -12,6 +39,14 @@ export default function AppLayout() {
     { name: 'Iratok', href: '#', icon: FileText },
     { name: 'Beállítások', href: '#', icon: Settings },
   ];
+
+  if (isInitializing) {
+    return (
+       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+           <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+       </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -51,7 +86,7 @@ export default function AppLayout() {
         </nav>
         
         <div className="px-4 mt-auto">
-          <button className="flex items-center w-full px-4 py-3 text-sm font-medium text-slate-300 rounded-xl hover:bg-slate-800 hover:text-white transition-all">
+          <button onClick={handleLogout} className="flex items-center w-full px-4 py-3 text-sm font-medium text-slate-300 rounded-xl hover:bg-slate-800 hover:text-white transition-all">
             <LogOut className="mr-3 flex-shrink-0 h-5 w-5 text-slate-400 group-hover:text-white" />
             Kilépés
           </button>

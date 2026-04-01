@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import { DndContext, closestCenter, DragOverlay } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useSortable } from '@dnd-kit/sortable';
@@ -61,31 +62,63 @@ function SortableItem(props: { project: Project }) {
 }
 
 export default function Kanban() {
-  const [projects, setProjects] = useState<Project[]>([
-    { id: 'p1', clientName: 'Kovács János', status: 'előkészítés', date: '2026-03-20', amount: 50000 },
-    { id: 'p2', clientName: 'Nagy Kft.', status: 'beadás', date: '2026-03-25', amount: 74000 },
-    { id: 'p3', clientName: 'Szabó Éva', status: 'hiánypótlás', date: '2026-03-26', amount: 0 },
-    { id: 'p4', clientName: 'Tóth István', status: 'folyósítás', date: '2026-03-28', amount: 25000 },
-  ]);
-
+  const [projects, setProjects] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchProjects() {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) return;
+
+        const { data, error } = await supabase
+          .from('projects')
+          .select('id, status, created_at, clients(name)');
+
+        if (error) throw error;
+
+        const mappedProjects = data.map((project: any) => ({
+          id: project.id,
+          clientName: project.clients ? (Array.isArray(project.clients) ? project.clients[0]?.name : project.clients.name) : 'Ismeretlen',
+          status: project.status,
+          date: new Date(project.created_at).toISOString().split('T')[0],
+          amount: 0 // Cél: később valós dokumentum vagy hitelezési érték
+        }));
+
+        setProjects(mappedProjects);
+      } catch (error) {
+        console.error('Hiba a projektek lekérdezésekor:', error);
+      }
+    }
+    
+    fetchProjects();
+  }, []);
 
   const handleDragStart = (event: any) => {
     setActiveId(event.active.id);
   };
 
-  const handleDragEnd = (event: any) => {
+  const handleDragEnd = async (event: any) => {
     setActiveId(null);
     const { active, over } = event;
     if (!over) return;
 
-    // A nagyon egyszerű Drag & Drop (a dnd-kit drop animációhoz column-id kellene igaziból)
-    // Most MVP prototípushoz oszlop fölé engedést vizsgálunk
     const overId = over.id as ProjectStatus;
     if (STATUSES.some(s => s.id === overId)) {
+        // Optimistic UI UI módosítás
         setProjects((items) => 
             items.map(p => p.id === active.id ? { ...p, status: overId } : p)
         );
+
+        // Supabase update a háttérben
+        const { error } = await supabase
+          .from('projects')
+          .update({ status: overId })
+          .eq('id', active.id);
+          
+        if (error) {
+          console.error("Házirend vagy DB hiba a státuszváltásnál:", error);
+        }
     }
   };
 

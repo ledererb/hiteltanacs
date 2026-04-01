@@ -1,16 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import { Plus, Search, Filter, MoreVertical, FileDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   
-  // Mock adatok MVPhöz
-  const clients = [
-    { id: '1', name: 'Kovács János', co_debtor: 'Kovácsné Szabó Éva', status: 'előkészítés', projectCount: 1, created: '2026-03-20' },
-    { id: '2', name: 'Nagy Kft.', co_debtor: '-', status: 'beadás', projectCount: 2, created: '2026-03-25' },
-    { id: '3', name: 'Tóth István', co_debtor: '-', status: 'folyósítás', projectCount: 1, created: '2026-03-28' }
-  ];
+  const [clients, setClients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchClients() {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) return;
+        
+        const { data, error } = await supabase
+          .from('clients')
+          .select('id, name, co_debtor_name, created_at, projects(id, status)')
+          .order('created_at', { ascending: false });
+          
+        if (error) throw error;
+        
+        const mappedClients = data.map((client: any) => ({
+          id: client.id,
+          name: client.name,
+          co_debtor: client.co_debtor_name || '-',
+          status: client.projects && client.projects.length > 0 ? client.projects[0].status : 'nincs feltöltve',
+          projectCount: client.projects ? client.projects.length : 0,
+          created: new Date(client.created_at).toISOString().split('T')[0]
+        }));
+        
+        setClients(mappedClients);
+      } catch (error) {
+        console.error('Hiba az ügyfelek lekérdezésekor:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    fetchClients();
+  }, []);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -71,27 +101,41 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
-              {clients.map((client) => (
-                <tr key={client.id} className="hover:bg-slate-50/70 transition-colors cursor-pointer" onClick={() => navigate(`/clients/${client.id}`)}>
-                  <td className="whitespace-nowrap py-4 pl-6 pr-3 text-sm">
-                    <div className="font-medium text-slate-900">{client.name}</div>
-                    <div className="text-slate-500 text-xs mt-0.5">{client.projectCount} aktív projekt</div>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-500">{client.co_debtor}</td>
-                  <td className="whitespace-nowrap px-3 py-4 text-sm">{getStatusBadge(client.status)}</td>
-                  <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-500">{client.created}</td>
-                  <td className="relative whitespace-nowrap py-4 pl-3 pr-6 text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
-                       <button className="text-slate-400 hover:text-primary-600 transition-colors" title="Iratok generálása">
-                          <FileDown className="w-4 h-4" />
-                       </button>
-                       <button className="text-slate-400 hover:text-slate-900 transition-colors">
-                          <MoreVertical className="w-4 h-4" />
-                       </button>
-                    </div>
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                    Adatok betöltése...
                   </td>
                 </tr>
-              ))}
+              ) : clients.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                    Nincsenek ügyfelek a rendszerben.
+                  </td>
+                </tr>
+              ) : (
+                clients.map((client) => (
+                  <tr key={client.id} className="hover:bg-slate-50/70 transition-colors cursor-pointer" onClick={() => navigate(`/clients/${client.id}`)}>
+                    <td className="whitespace-nowrap py-4 pl-6 pr-3 text-sm">
+                      <div className="font-medium text-slate-900">{client.name}</div>
+                      <div className="text-slate-500 text-xs mt-0.5">{client.projectCount} aktív projekt</div>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-500">{client.co_debtor}</td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm">{getStatusBadge(client.status)}</td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-500">{client.created}</td>
+                    <td className="relative whitespace-nowrap py-4 pl-3 pr-6 text-right text-sm font-medium">
+                      <div className="flex items-center justify-end gap-2">
+                         <button onClick={(e) => e.stopPropagation()} className="text-slate-400 hover:text-primary-600 transition-colors" title="Iratok generálása">
+                            <FileDown className="w-4 h-4" />
+                         </button>
+                         <button onClick={(e) => e.stopPropagation()} className="text-slate-400 hover:text-slate-900 transition-colors">
+                            <MoreVertical className="w-4 h-4" />
+                         </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
