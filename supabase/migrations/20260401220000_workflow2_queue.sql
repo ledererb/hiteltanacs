@@ -65,13 +65,13 @@ CREATE TRIGGER trigger_queue_contract_emails
     AFTER UPDATE ON projects
     FOR EACH ROW EXECUTE FUNCTION queue_contract_emails();
 
--- 4. CRON JOB 15 percenkénti futáshoz
+-- 4. CRON JOB óránkénti futáshoz
 -- HA újra szeretnénk futtatni egy esetleges hiba miatt:
-SELECT cron.unschedule('process_email_queue_15min');
+SELECT cron.unschedule('process_email_queue_hourly');
 
 SELECT cron.schedule(
-    'process_email_queue_15min',
-    '*/15 * * * *',
+    'process_email_queue_hourly',
+    '0 * * * *',
     $$
     SELECT net.http_post(
         url:='https://[YOUR_PROJECT_REF_URL].supabase.co/functions/v1/process-email-queue',

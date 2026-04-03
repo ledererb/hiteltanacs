@@ -34,7 +34,7 @@ export default function AppLayout() {
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
-    { name: 'Ügyfelek', href: '/dashboard', icon: Users },
+    { name: 'Ügyfelek', href: '/clients', icon: Users },
     { name: 'Kanban', href: '/kanban', icon: ListTodo },
     { name: 'Pénzügyek', href: '/billing', icon: Banknote },
     { name: 'Beállítások', href: '/settings', icon: Settings },

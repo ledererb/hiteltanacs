@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './pages/Dashboard';
+import Clients from './pages/Clients';
 import Login from './pages/Login';
 import Kanban from './pages/Kanban';
 import ClientDetails from './pages/ClientDetails';
@@ -15,6 +16,7 @@ function App() {
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Navigate to="/login" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="clients" element={<Clients />} />
           <Route path="clients/:id" element={<ClientDetails />} />
           <Route path="kanban" element={<Kanban />} />
           <Route path="billing" element={<Billing />} />
