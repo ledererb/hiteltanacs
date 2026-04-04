@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import clsx from 'clsx';
+import { generateProjectDocuments, generateDebugPdf } from '../services/pdfService';
 import { 
   generateMeghatalmazas, 
   generateNyilatkozat, 
@@ -14,6 +15,7 @@ import {
   generatePepNyilatkozat,
   generateKhrNyilatkozat
 } from '../lib/pdfGenerator';
+
 
 export default function ClientDetails() {
   const { id } = useParams();
@@ -26,19 +28,20 @@ export default function ClientDetails() {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   
-  const [isUploading, setIsUploading] = useState(false);
   const [documents, setDocuments] = useState<any[]>([]);
-  const [uploadProjectId, setUploadProjectId] = useState('');
-  const [uploadDocType, setUploadDocType] = useState('nyilatkozat');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
+  const [activeReplaceDoc, setActiveReplaceDoc] = useState<any>(null);
 
+  // PDF Generálás Modal States
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfProjectId, setPdfProjectId] = useState('');
   const [pdfType, setPdfType] = useState<
     'nyilatkozat' | 'meghatalmazás' | 'osszefoglalo' | 'horizontalis' | 
-    'tulajdonosi_nyilatkozat' | 'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat'
+    'tulajdonosi_nyilatkozat' | 'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat' | 'meghatalmazás_mfb' | 'debug_pdf_mfb'
   >('nyilatkozat');
-  const [pdfProjectId, setPdfProjectId] = useState('');
+
+
 
   // Új űrlap statek a tulajdonosokhoz és KHR hitelekhez
   const [owners, setOwners] = useState<{name: string, share: string, address: string}[]>([]);
@@ -71,6 +74,11 @@ export default function ClientDetails() {
       co_debtor: '',
       income: '',
       email: '',
+      birth_name: '',
+      birth_place: '',
+      birth_date: '',
+      mothers_name: '',
+      tax_id: ''
     }
   });
 
@@ -91,6 +99,11 @@ export default function ClientDetails() {
               co_debtor: client.co_debtor_name || '',
               income: client.income_data?.net_income?.toString() || '',
               email: client.email || '',
+              birth_name: client.birth_name || '',
+              birth_place: client.birth_place || '',
+              birth_date: client.birth_date || '',
+              mothers_name: client.mothers_name || '',
+              tax_id: client.tax_id || ''
             });
             setOwners(client.owners || []);
             setExistingLoans(client.existing_loans || []);
@@ -106,8 +119,7 @@ export default function ClientDetails() {
           if (projects) {
              setActiveProjects(projects);
              if (projects.length > 0) {
-                 setUploadProjectId(projects[0].id); // Alapértelmezett projekt a feltöltéshez
-                 setPdfProjectId(projects[0].id); // Alapértelmezett projekt az iratgeneráláshoz
+                 setPdfProjectId(projects[0].id);
              }
              
              // Dokumentumok betöltése a projektekhez
@@ -128,7 +140,7 @@ export default function ClientDetails() {
       
       fetchClientInfo();
     } else {
-      reset({ name: '', co_debtor: '', income: '', email: '' });
+      reset({ name: '', co_debtor: '', income: '', email: '', birth_name: '', birth_place: '', birth_date: '', mothers_name: '', tax_id: '' });
       setOwners([]);
       setExistingLoans([]);
       setActiveProjects([]);
@@ -157,6 +169,11 @@ export default function ClientDetails() {
         owners: owners,
         existing_loans: existingLoans,
         email: data.email,
+        birth_name: data.birth_name,
+        birth_place: data.birth_place,
+        birth_date: data.birth_date,
+        mothers_name: data.mothers_name,
+        tax_id: data.tax_id,
         user_id: user.id
       };
 
@@ -241,53 +258,6 @@ export default function ClientDetails() {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !uploadProjectId) return;
-
-    setIsUploading(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) throw new Error("Nincs aktív bejelentkezés");
-
-      // Fájl feltöltése a Supabase Storage-ba
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `${sessionData.session.user.id}/${uploadProjectId}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('documents')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // Adatbázis bejegyzés a dokumentumokhoz
-      const { data: docData, error: dbError } = await supabase
-        .from('documents')
-        .insert([{
-          project_id: uploadProjectId,
-          doc_type: uploadDocType,
-          storage_path: filePath,
-          uploaded_by: sessionData.session.user.id
-        }])
-        .select()
-        .single();
-
-      if (dbError) throw dbError;
-
-      if (docData) {
-        setDocuments(prev => [docData, ...prev]);
-        const projectMatch = activeProjects.find(p => p.id === uploadProjectId);
-        alert(`Sikeres feltöltés a(z) '${projectMatch?.notes || 'Kiválasztott projekt'}' projekthez!`);
-      }
-    } catch (err: any) {
-       console.error("Hiba fájlfeltöltéskor:", err);
-       alert("Sikertelen feltöltés: " + err.message);
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
 
   const handleDownload = async (path: string, originalName: string) => {
     try {
@@ -427,6 +397,9 @@ export default function ClientDetails() {
     }
   };
 
+
+
+
   const handleGeneratePdf = async () => {
     if (!id || id === 'new' || !pdfProjectId) {
       alert("A generáláshoz az ügyfélnek legalább egy mentett projekttel kell rendelkeznie!");
@@ -435,9 +408,6 @@ export default function ClientDetails() {
     setIsGeneratingPdf(true);
     
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) throw new Error("Nincs aktív bejelentkezés");
-
       const formValues = getValues();
       const projectMatch = activeProjects.find(p => p.id === pdfProjectId);
 
@@ -467,6 +437,14 @@ export default function ClientDetails() {
         pdfBlob = generatePepNyilatkozat(clientData);
       } else if (pdfType === 'khr_nyilatkozat') {
         pdfBlob = generateKhrNyilatkozat(clientData);
+      } else if (pdfType === 'meghatalmazás_mfb') {
+        const result = await generateProjectDocuments(pdfProjectId);
+        if (!result.blob) throw new Error("Hiba a hivatalos MFB pdf generálásakor.");
+        pdfBlob = result.blob;
+      } else if (pdfType === 'debug_pdf_mfb') {
+        const result = await generateDebugPdf('ML104U-Megbizott-penzugyi-tanacsado-meghatalmazasa_KEHOP.pdf');
+        if (!result.blob) throw new Error("Hiba a debug PDF generálásakor.");
+        pdfBlob = result.blob;
       } else {
         throw new Error("Ismeretlen PDF típus");
       }
@@ -481,33 +459,13 @@ export default function ClientDetails() {
       else if (pdfType === 'tulajdonosi_hozzajarulas') typeLabel = 'Tulajdonosi_Hozzajarulas';
       else if (pdfType === 'pep_nyilatkozat') typeLabel = 'PEP_Nyilatkozat';
       else if (pdfType === 'khr_nyilatkozat') typeLabel = 'KHR_Nyilatkozat';
+      else if (pdfType === 'meghatalmazás_mfb') typeLabel = 'MFB_Hivatalos_Meghatalmazas';
+      else if (pdfType === 'debug_pdf_mfb') typeLabel = 'DEBUG_PDF_Meghatalmazas';
 
       const timestamp = new Date().getTime();
       const fileName = `${typeLabel}_${safeName}_${timestamp}.pdf`;
-      const filePath = `${sessionData.session.user.id}/${pdfProjectId}/${fileName}`;
 
-      const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-      const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: docData, error: dbError } = await supabase
-        .from('documents')
-        .insert([{
-          project_id: pdfProjectId,
-          doc_type: pdfType,
-          storage_path: filePath,
-          uploaded_by: sessionData.session.user.id
-        }])
-        .select()
-        .single();
-        
-      if (dbError) throw dbError;
-
-      if (docData) {
-          setDocuments(prev => [docData, ...prev]);
-      }
-
+      // Csak letöltjük a gépünkre, NINCS Supabase Storage feltöltés
       const url = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
@@ -516,6 +474,17 @@ export default function ClientDetails() {
       link.click();
       URL.revokeObjectURL(url);
       document.body.removeChild(link);
+
+      // Lokális, még nem feltöltött állapotú "Ghost" rekord hozzáadása a táblázathoz
+      const ghostDoc = {
+        id: `local_${Date.now()}`,
+        project_id: pdfProjectId,
+        doc_type: pdfType,
+        storage_path: '',
+        created_at: new Date().toISOString(),
+        isLocal: true
+      };
+      setDocuments(prev => [ghostDoc, ...prev]);
 
       setIsPdfModalOpen(false);
       
@@ -526,6 +495,80 @@ export default function ClientDetails() {
       setIsGeneratingPdf(false);
     }
   };
+
+  const handleReplaceDocumentClick = (doc: any) => {
+    if (window.confirm('Kijelented és igazolod, hogy a dokumentum fizikailag vagy digitálisan hitelesítve (aláírva) van a kérelmező(k) által?\n\nCsak ALÁÍRT fájl tölthető fel!')) {
+       setActiveReplaceDoc(doc);
+       if (replaceFileInputRef.current) replaceFileInputRef.current.click();
+    }
+  };
+
+  const handleReplaceFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !activeReplaceDoc) return;
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error("Nincs aktív bejelentkezés");
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `signed_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const newStoragePath = `${sessionData.session.user.id}/${activeReplaceDoc.project_id}/${fileName}`;
+
+      // Upload new file
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(newStoragePath, file);
+      if (uploadError) throw uploadError;
+
+      if (activeReplaceDoc.isLocal) {
+         // Insert brand new to Supabase since it's just a local UI placeholder
+         const { data: insertedDoc, error: insertError } = await supabase
+           .from('documents')
+           .insert([{
+             project_id: activeReplaceDoc.project_id,
+             doc_type: activeReplaceDoc.doc_type,
+             storage_path: newStoragePath,
+             uploaded_by: sessionData.session.user.id
+           }])
+           .select()
+           .single();
+         if (insertError) throw insertError;
+         
+         if (insertedDoc) {
+             setDocuments(prev => prev.map(d => d.id === activeReplaceDoc.id ? insertedDoc : d));
+             alert('Sikeresen létrejött és felkerült a szerverre!');
+         }
+      } else {
+         // Update DB record
+         const { data: updatedDoc, error: updateError } = await supabase
+           .from('documents')
+           .update({ storage_path: newStoragePath, updated_at: new Date().toISOString() })
+           .eq('id', activeReplaceDoc.id)
+           .select()
+           .single();
+         if (updateError) throw updateError;
+
+         // Remove old file from storage (optional, for cleanup)
+         if (activeReplaceDoc.storage_path) {
+            supabase.storage.from('documents').remove([activeReplaceDoc.storage_path]).catch(console.error);
+         }
+
+         if (updatedDoc) {
+           setDocuments(prev => prev.map(d => d.id === updatedDoc.id ? updatedDoc : d));
+           alert('Sikeresen kicserélve az aláírt változatra!');
+         }
+      }
+    } catch (err: any) {
+      console.error("Hiba fájlcsere során:", err);
+      alert("Hiba: " + err.message);
+    } finally {
+      setActiveReplaceDoc(null);
+      if (replaceFileInputRef.current) replaceFileInputRef.current.value = '';
+    }
+  };
+
+
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -542,12 +585,18 @@ export default function ClientDetails() {
          <div className="flex space-x-3">
              <button 
                type="button"
-               onClick={() => setIsPdfModalOpen(true)}
+               onClick={() => {
+                 if (!pdfProjectId && activeProjects.length > 0) {
+                    setPdfProjectId(activeProjects[0].id);
+                 }
+                 setIsPdfModalOpen(true);
+               }}
                disabled={id === 'new'}
                className="inline-flex items-center justify-center rounded-xl bg-primary-50 px-4 py-2 text-sm font-semibold text-primary-700 shadow-sm ring-1 ring-inset ring-primary-600/20 hover:bg-primary-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                <FileSignature className="w-4 h-4 mr-2" />
                Iratok Generálása
              </button>
+
              <button disabled={isSubmitting} onClick={handleSubmit(onSubmit)} className="inline-flex items-center justify-center rounded-xl bg-primary-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary-500/20 hover:bg-primary-600 hover:-translate-y-0.5 transition-all disabled:opacity-70 disabled:cursor-not-allowed">
                {isSubmitting ? (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -613,6 +662,30 @@ export default function ClientDetails() {
                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Havi nettó jövedelem (Ft)</label>
                    <input {...register('income')} type="number" className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
                 </div>
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Születési Név</label>
+                   <input {...register('birth_name')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                </div>
+                
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Anyja Neve</label>
+                   <input {...register('mothers_name')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                </div>
+
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Születési Hely</label>
+                   <input {...register('birth_place')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                </div>
+
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Születési Idő</label>
+                   <input {...register('birth_date')} type="date" className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                </div>
+
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Adóazonosító Jel</label>
+                   <input {...register('tax_id')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                </div>
              </form>
 
              {/* Tulajdonosok */}
@@ -665,7 +738,7 @@ export default function ClientDetails() {
           </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="flex flex-col gap-8">
          {/* Projekt Box */}
          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-8 transition-colors">
              <div className="flex items-center justify-between mb-6">
@@ -760,6 +833,7 @@ export default function ClientDetails() {
              )}
          </div>
 
+
          {/* Központosított Dokumentumtár UI */}
          {activeProjects.length > 0 && documents.length > 0 && (
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden transition-colors">
@@ -788,9 +862,22 @@ export default function ClientDetails() {
                         {documents.map(doc => {
                            const projectMatch = activeProjects.find(p => p.id === doc.project_id);
                            const projectName = projectMatch ? (projectMatch.notes || `[#${projectMatch.id.substring(0,8)}]`) : 'Projekt';
-                           const friendlyName = doc.doc_type.replace('_', ' ');
-
-                           return (
+                           
+                           let friendlyName = doc.doc_type;
+                           if (doc.doc_type === 'het_start') friendlyName = 'HET alapállapot';
+                           else if (doc.doc_type === 'het_planned') friendlyName = 'HET tervezett állapot';
+                           else if (doc.doc_type === 'het_final') friendlyName = 'HET megvalósult állapot';
+                           else if (doc.doc_type === 'árajánlat') friendlyName = 'Árajánlat / Költségvetés';
+                           else if (doc.doc_type === 'nyilatkozat') friendlyName = 'Adatvédelmi Nyilatkozat';
+                           else if (doc.doc_type === 'meghatalmazás') friendlyName = 'Meghatalmazás (MFB - Hivatalos)';
+                           else if (doc.doc_type === 'osszefoglalo') friendlyName = 'Összefoglaló Nyilatkozat';
+                           else if (doc.doc_type === 'horizontalis') friendlyName = 'Horizontális Követelmények';
+                           else if (doc.doc_type === 'hiánypótlás') friendlyName = 'Hiánypótlás';
+                           else if (doc.doc_type === 'tulajdonosi_nyilatkozat') friendlyName = 'Tulajdonosi Nyilatkozat';
+                           else if (doc.doc_type === 'tulajdonosi_hozzajarulas') friendlyName = 'Tulajdonosi Hozzájárulás';
+                           else if (doc.doc_type === 'pep_nyilatkozat') friendlyName = 'Közszereplői (PEP) Nyilatkozat';
+                           else if (doc.doc_type === 'khr_nyilatkozat') friendlyName = 'KHR Nyilatkozat';
+                           else friendlyName = friendlyName.replace('_', ' ');                           return (
                               <tr key={doc.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                                  <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center">
@@ -798,7 +885,10 @@ export default function ClientDetails() {
                                           <FileSignature className="w-4 h-4" />
                                        </div>
                                        <div>
-                                          <div className="font-medium text-slate-900 dark:text-slate-100 capitalize">{friendlyName}</div>
+                                          <div className="font-medium text-slate-900 dark:text-slate-100 capitalize flex items-center">
+                                            {friendlyName}
+                                            {doc.isLocal && <span className="ml-2 inline-block text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-bold">Aláírásra vár</span>}
+                                          </div>
                                           <div className="text-xs text-slate-500 dark:text-slate-400">PDF Dokumentum</div>
                                        </div>
                                     </div>
@@ -807,21 +897,36 @@ export default function ClientDetails() {
                                     <div className="text-sm text-slate-600 dark:text-slate-300">{projectName}</div>
                                  </td>
                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
-                                    {new Date(doc.created_at).toLocaleDateString('hu-HU')}
+                                    {doc.isLocal ? '-' : new Date(doc.created_at).toLocaleDateString('hu-HU')}
                                  </td>
                                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                     <div className="flex items-center justify-end gap-3">
+                                       {!doc.isLocal && (
+                                          <button 
+                                             onClick={() => handleDownload(doc.storage_path, `${friendlyName}.pdf`)}
+                                             className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors tooltip flex items-center"
+                                             title="Fájl letöltése"
+                                          >
+                                             <Download className="w-4 h-4" />
+                                          </button>
+                                       )}
                                        <button 
-                                          onClick={() => handleDownload(doc.storage_path, `${friendlyName}.pdf`)}
-                                          className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors tooltip flex items-center"
-                                          title="Fájl letöltése"
+                                          onClick={() => handleReplaceDocumentClick(doc)}
+                                          className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors tooltip flex items-center"
+                                          title="Aláírt példány Feltöltése"
                                        >
-                                          <Download className="w-4 h-4" />
+                                          <UploadCloud className="w-4 h-4" />
                                        </button>
                                        <button 
-                                          onClick={() => handleDeleteDocument(doc.id, doc.storage_path)}
+                                          onClick={() => {
+                                             if (doc.isLocal) {
+                                                setDocuments(prev => prev.filter(d => d.id !== doc.id));
+                                             } else {
+                                                handleDeleteDocument(doc.id, doc.storage_path);
+                                             }
+                                          }}
                                           className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors tooltip flex items-center"
-                                          title="Törlés a szerverről"
+                                          title="Törlés a listából / szerverről"
                                        >
                                           <Trash2 className="w-4 h-4" />
                                        </button>
@@ -835,65 +940,80 @@ export default function ClientDetails() {
                </div>
             </div>
          )}
-         {/* File feltöltés Box */}
-         <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl shadow-inner border border-slate-200 dark:border-slate-700 p-8 flex flex-col items-center justify-center text-center transition-colors">
-             <UploadCloud className="w-12 h-12 text-slate-400 dark:text-slate-500 mb-4" />
-             <h3 className="text-slate-900 dark:text-white font-medium mb-1">Feltöltés a Supabase Storage-ba</h3>
-             <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-[250px]">
-                 Töltsd fel az energetikai HET igazolásokat vagy egyéb mellékleteket
-             </p>
-             
-             {id !== 'new' && activeProjects.length > 0 ? (
-               <div className="w-full max-w-sm flex flex-col gap-3 text-left mb-6">
-                 <div>
-                   <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Cél projekt</label>
-                   <select 
-                     value={uploadProjectId}
-                     onChange={e => setUploadProjectId(e.target.value)}
-                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-2 px-3 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm transition-all"
-                   >
+         <input type="file" ref={replaceFileInputRef} className="hidden" onChange={handleReplaceFileChange} accept="application/pdf,image/*" />
+      </div>
+
+      {/* Automatikus Iratgenerálás Modal */}
+      {isPdfModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800">
+            <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+               <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center">
+                  <FileSignature className="w-5 h-5 mr-2 text-primary-500" />
+                  Automatikus Iratgenerálás
+               </h3>
+            </div>
+            
+            <div className="p-6 space-y-5">
+               <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 text-xs p-4 rounded-xl flex items-start leading-relaxed border border-blue-100 dark:border-blue-800/50">
+                  <Briefcase className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                  <div>A rendszer a letöltésnél már a <b>mentett adatokat</b> használja. Ha módosítottál űrlap mezőket, <b>először kattints a Mentés gombra</b>! Az iratot ez a modal <b>nem tölti fel a gépről</b>, csak letölti az üres kitöltött változatot aláírásra!</div>
+               </div>
+
+               <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Melyik projekthez kapcsolódik az irat?</label>
+                  <select
+                     value={pdfProjectId}
+                     onChange={e => setPdfProjectId(e.target.value)}
+                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-3 px-4 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white"
+                  >
+                     {activeProjects.length === 0 && <option value="">Nincs mentett projekt!</option>}
                      {activeProjects.map(p => (
                        <option value={p.id} key={p.id}>{p.notes || `Projekt #${p.id.substring(0,8)}`}</option>
                      ))}
-                   </select>
-                 </div>
-                 <div>
-                   <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1">Dokumentum típusa</label>
-                   <select 
-                     value={uploadDocType}
-                     onChange={e => setUploadDocType(e.target.value)}
-                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-2 px-3 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm transition-all"
-                   >
-                      <option value="het_start">HET alapállapot</option>
-                      <option value="het_planned">HET tervezett állapot</option>
-                      <option value="het_final">HET megvalósult állapot</option>
-                      <option value="árajánlat">Árajánlat / Költségvetés</option>
-                      <option value="nyilatkozat">Adatvédelmi Nyilatkozat</option>
-                      <option value="meghatalmazás">Meghatalmazás</option>
-                      <option value="osszefoglalo">Összefoglaló Nyilatkozat</option>
-                      <option value="horizontalis">Horizontális Követelmények</option>
-                      <option value="hiánypótlás">Hiánypótlás</option>
-                   </select>
-                 </div>
+                  </select>
                </div>
-             ) : (
-                <div className="text-xs text-amber-600 dark:text-amber-400 mb-4 font-medium px-4 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                  Feltöltéshez mentsd el az ügyfelet és hozz létre legalább egy projektet!
-                </div>
-             )}
-             
-             <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-             
-             <button 
-                 onClick={() => fileInputRef.current?.click()}
-                 disabled={isUploading || id === 'new' || activeProjects.length === 0}
-                 className="rounded-xl flex items-center bg-white dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-200 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-             >
-                 {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin text-primary-500" /> : null}
-                 {isUploading ? 'Feltöltés...' : 'Fájlok kiválasztása'}
-             </button>
-         </div>
-      </div>
+
+               <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Generálandó dokumentum típusa</label>
+                  <select
+                     value={pdfType}
+                     onChange={e => setPdfType(e.target.value as any)}
+                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-3 px-4 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white"
+                  >
+                     <option value="nyilatkozat">Adatvédelmi Nyilatkozat</option>
+                     <option value="meghatalmazás">Meghatalmazás</option>
+                     <option value="osszefoglalo">Összefoglaló Nyilatkozat</option>
+                     <option value="horizontalis">Horizontális Követelmények</option>
+                     <option value="tulajdonosi_nyilatkozat">Tulajdonosi Nyilatkozat</option>
+                     <option value="tulajdonosi_hozzajarulas">Tulajdonosi Hozzájárulás</option>
+                     <option value="pep_nyilatkozat">Közszereplői (PEP) Nyilatkozat</option>
+                     <option value="khr_nyilatkozat">KHR Nyilatkozat</option>
+                     <option value="meghatalmazás_mfb" className="font-bold text-primary-600">MFB Hivatalos Meghatalmazás</option>
+                     <option value="debug_pdf_mfb" className="italic text-slate-500">PDF Sablon Teszt (Debug)</option>
+                  </select>
+               </div>
+            </div>
+
+            <div className="px-6 py-5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 rounded-b-2xl">
+              <button 
+                onClick={() => setIsPdfModalOpen(false)}
+                className="px-5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-700"
+              >
+                Mégse
+              </button>
+              <button 
+                onClick={handleGeneratePdf}
+                disabled={!pdfProjectId || isGeneratingPdf || activeProjects.length === 0}
+                className="px-5 py-2.5 text-sm font-medium text-white bg-primary-600 rounded-xl shadow-md shadow-primary-500/20 hover:bg-primary-700 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+              >
+                {isGeneratingPdf ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileSignature className="w-4 h-4 mr-2" />}
+                {isGeneratingPdf ? 'Generálás folyamatban...' : 'Generálás és Letöltés'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Új Projekt Modal */}
       {isProjectModalOpen && (
@@ -933,171 +1053,7 @@ export default function ClientDetails() {
         </div>
       )}
 
-      {/* PDF Generáló Modal */}
-      {isPdfModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Automatikus Iratgenerálás</h3>
-            </div>
-            
-            {activeProjects.length === 0 ? (
-               <div className="p-6 text-center text-amber-600 dark:text-amber-400 text-sm font-medium">
-                  Az iratok generálásához az ügyfélnek legalább egy felvitt projekttel kell rendelkeznie. Kérlek előbb hozz létre egy projektet!
-               </div>
-            ) : (
-                <div className="p-6 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Cél projekt</label>
-                    <select 
-                        value={pdfProjectId}
-                        onChange={(e) => setPdfProjectId(e.target.value)}
-                        className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-2.5 px-3 text-sm focus:ring-primary-500 focus:border-primary-500 shadow-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                    >
-                        {activeProjects.map(p => (
-                          <option value={p.id} key={p.id}>{p.notes || `Projekt #${p.id.substring(0,8)}`}</option>
-                        ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Irat Típusa</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto pr-1">
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'nyilatkozat' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="nyilatkozat" checked={pdfType === 'nyilatkozat'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Adatkezelési Nyilatkozat</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">GDPR és hitelügyintézési hozzájárulás.</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'nyilatkozat' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
 
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'meghatalmazás' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="meghatalmazás" checked={pdfType === 'meghatalmazás'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Meghatalmazás (4 pld.)</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">Teljeskörű megbízás és képviselet (4 oldal).</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'meghatalmazás' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
-
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'osszefoglalo' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="osszefoglalo" checked={pdfType === 'osszefoglalo'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Összefoglaló Nyilatkozat</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">Szerződött beruházások listázása a Klienssel.</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'osszefoglalo' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
-
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'horizontalis' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="horizontalis" checked={pdfType === 'horizontalis'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Horizontális Követelmények</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">Pipa lista a műszaki ellenőr számára.</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'horizontalis' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
-
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'tulajdonosi_nyilatkozat' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="tulajdonosi_nyilatkozat" checked={pdfType === 'tulajdonosi_nyilatkozat'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Tulajdonosi Nyilatkozat</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">Tulajdoni arányok feltüntetése.</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'tulajdonosi_nyilatkozat' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
-
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'tulajdonosi_hozzajarulas' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="tulajdonosi_hozzajarulas" checked={pdfType === 'tulajdonosi_hozzajarulas'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Tulajdonosi Hozzájárulás</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">A projektbe történő beleegyezés és aláírás.</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'tulajdonosi_hozzajarulas' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
-
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'pep_nyilatkozat' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="pep_nyilatkozat" checked={pdfType === 'pep_nyilatkozat'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Kiemelt Közszereplői</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">PEP státusz megállapítása.</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'pep_nyilatkozat' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
-
-                        <label className={clsx(
-                            "relative flex cursor-pointer rounded-xl border p-4 shadow-sm focus:outline-none transition-all",
-                            pdfType === 'khr_nyilatkozat' ? "bg-primary-50 dark:bg-primary-900/30 border-primary-500 ring-1 ring-primary-500" : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        )}>
-                            <input type="radio" value="khr_nyilatkozat" checked={pdfType === 'khr_nyilatkozat'} onChange={(e) => setPdfType(e.target.value as any)} className="sr-only" />
-                            <span className="flex flex-1">
-                               <span className="flex flex-col">
-                                  <span className="block text-sm font-medium text-slate-900 dark:text-white">Meglévő Hitelek (KHR)</span>
-                                  <span className="mt-1 flex items-center text-xs text-slate-500 dark:text-slate-400">Fennálló banki tartozások deklarálása.</span>
-                               </span>
-                            </span>
-                            <CheckCircle2 className={clsx("h-5 w-5", pdfType === 'khr_nyilatkozat' ? "text-primary-600 dark:text-primary-400" : "text-transparent")} />
-                        </label>
-                    </div>
-                  </div>
-                </div>
-            )}
-
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
-              <button 
-                onClick={() => setIsPdfModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl shadow-sm hover:bg-slate-50 transition-colors"
-              >
-                Mégse
-              </button>
-              <button 
-                onClick={handleGeneratePdf}
-                disabled={activeProjects.length === 0 || isGeneratingPdf}
-                className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-xl shadow-sm hover:bg-primary-700 transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isGeneratingPdf && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Irat Letöltése & Mentése
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Kivitelező Hozzáadása Modal */}
       {isContractorModalOpen && (

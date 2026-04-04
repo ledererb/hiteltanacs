@@ -6,12 +6,14 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Clock, FileText, CheckCircle, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
+import { useNavigate } from 'react-router-dom';
 
 // Type definitions
 type ProjectStatus = 'előkészítés' | 'beadás' | 'hiánypótlás' | 'szerződéskötés' | 'folyósítás' | 'zárás';
 
 interface Project {
   id: string;
+  clientId: string;
   clientName: string;
   status: ProjectStatus;
   date: string;
@@ -28,6 +30,7 @@ const STATUSES: { id: ProjectStatus; label: string; color: string }[] = [
 ];
 
 function SortableItem(props: { project: Project }) {
+  const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ 
     id: props.project.id,
     data: {
@@ -43,6 +46,7 @@ function SortableItem(props: { project: Project }) {
       style={style}
       {...attributes}
       {...listeners}
+      onDoubleClick={() => navigate(`/clients/${props.project.clientId}`)}
       className={clsx(
         "bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border mb-3 cursor-grab hover:shadow-md transition-all",
         isDragging ? "opacity-50 ring-2 ring-primary-500 border-transparent z-50 scale-105" : "border-slate-200 dark:border-slate-800"
@@ -111,12 +115,13 @@ export default function Kanban() {
 
         const { data, error } = await supabase
           .from('projects')
-          .select('id, status, created_at, clients(name)');
+          .select('id, status, created_at, client_id, clients(name)');
 
         if (error) throw error;
 
         const mappedProjects = data.map((project: any) => ({
           id: project.id,
+          clientId: project.client_id,
           clientName: project.clients ? (Array.isArray(project.clients) ? project.clients[0]?.name : project.clients.name) : 'Ismeretlen',
           status: project.status,
           date: new Date(project.created_at).toISOString().split('T')[0],

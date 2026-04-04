@@ -18,6 +18,14 @@ const hu = (text: string) => {
     .replace(/ű/g, 'ü').replace(/Ű/g, 'Ü');
 };
 
+const getTodayString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  return `Kelt: ................................, ${year}. év ${month}. hó ${day}. nap`;
+};
+
 export const generateMeghatalmazas = (data: ClientPDFData): Blob => {
   const doc = new jsPDF();
   
@@ -45,7 +53,7 @@ Jelen meghatalmazás visszavonásig érvényes.
     
     doc.text(text, 20, 50);
     
-    doc.text(hu("Kelt: ................................, 202... év ............. hó ...... nap"), 20, 150);
+    doc.text(hu(getTodayString()), 20, 150);
     doc.text(hu(".........................................."), 30, 180);
     doc.text(hu("Meghatalmazó (Ügyfél)"), 40, 190);
     doc.setFontSize(10);
@@ -80,7 +88,7 @@ nem adják át.
   
   doc.text(text, 20, 50);
   
-  doc.text(hu("Kelt: ................................, 202... év ............. hó ...... nap"), 20, 150);
+  doc.text(hu(getTodayString()), 20, 150);
   doc.text(hu(".........................................."), 30, 180);
   doc.text(hu("Nyilatkozatot tevő (Ügyfél)"), 40, 190);
 
@@ -122,7 +130,7 @@ export const generateOsszefoglaloNyilatkozat = (data: ClientPDFData): Blob => {
   doc.text(hu("Alulírott kijelentem, hogy a fenti lista a valóságnak és szándékomnak"), 20, currentY + 20);
   doc.text(hu("megfelel, az abban foglalt munkálatokat megrendelem."), 20, currentY + 28);
   
-  doc.text(hu("Kelt: ................................, 202... év ............. hó ...... nap"), 20, 220);
+  doc.text(hu(getTodayString()), 20, 220);
   doc.text(hu(".........................................."), 30, 250);
   doc.text(hu("Kivitelező vagy beruházó képviselője"), 30, 260);
 
@@ -165,7 +173,7 @@ export const generateHorizontalis = (data: ClientPDFData): Blob => {
   doc.text(hu("A kivitelezés során maradéktalanul betartották a specifikus"), 20, currentY + 20);
   doc.text(hu("követelményeket az érintett kiválasztott tevékenységek esetében."), 20, currentY + 28);
   
-  doc.text(hu("Kelt: ................................, 202... év ............. hó ...... nap"), 20, 220);
+  doc.text(hu(getTodayString()), 20, 220);
   doc.text(hu(".........................................."), 30, 250);
   doc.text(hu("Műszaki Ellenőr / Szakértő"), 40, 260);
 
@@ -203,7 +211,7 @@ tulajdonosi struktúrával rendelkezik az ingatlannyilvántartás alapján:
     });
   }
 
-  doc.text(hu("Kelt: ................................, 202... év ............. hó ...... nap"), 20, 220);
+  doc.text(hu(getTodayString()), 20, 220);
   doc.text(hu(".........................................."), 30, 250);
   doc.text(hu("Pályázó / Adós aláírása"), 40, 260);
 
@@ -240,6 +248,9 @@ hozzájárulunk a ${data.projectNotes || "Energetikai projekt"} megvalósítás�
     });
   }
 
+  // Ensure every declaration has the date as requested
+  doc.text(hu(getTodayString()), 20, 280);
+
   return doc.output('blob');
 };
 
@@ -267,7 +278,7 @@ Tudomásul veszem az adatszolgáltatási kötelezettségemet.
   
   doc.text(text, 20, 50);
   
-  doc.text(hu("Kelt: ................................, 202... év ............. hó ...... nap"), 20, 150);
+  doc.text(hu(getTodayString()), 20, 150);
   doc.text(hu(".........................................."), 30, 180);
   doc.text(hu("Nyilatkozatot tevő (Ügyfél)"), 40, 190);
 
@@ -308,7 +319,7 @@ hitelszerződéseim alapján az alábbi fennálló hiteltartozásokkal rendelkez
   doc.text(hu("Kijelentem, hogy a fenti adatok a valóságnak megfelelnek, fizetési"), 20, currentY + 20);
   doc.text(hu("hátralékom nincs."), 20, currentY + 28);
   
-  doc.text(hu("Kelt: ................................, 202... év ............. hó ...... nap"), 20, 220);
+  doc.text(hu(getTodayString()), 20, 220);
   doc.text(hu(".........................................."), 30, 250);
   doc.text(hu("Pályázó / Adós aláírása"), 40, 260);
 
