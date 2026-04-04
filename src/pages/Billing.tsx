@@ -10,6 +10,7 @@ interface BillingEvent {
   amount_huf: number;
   sent_to_billing: boolean;
   sent_at: string | null;
+  invoice_number?: string | null;
   created_at: string;
   project: {
     notes: string;
@@ -23,6 +24,7 @@ export default function Billing() {
   const [events, setEvents] = useState<BillingEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'billed'>('pending');
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchEvents();
@@ -34,7 +36,7 @@ export default function Billing() {
       const { data, error } = await supabase
         .from('billing_events')
         .select(`
-          id, event_type, amount_huf, sent_to_billing, sent_at, created_at,
+          id, event_type, amount_huf, sent_to_billing, sent_at, invoice_number, created_at,
           projects(notes, clients(name))
         `)
         .order('created_at', { ascending: false });
@@ -59,25 +61,37 @@ export default function Billing() {
     }
   }
 
-  const toggleBillingStatus = async (eventId: string, currentStatus: boolean) => {
+  const handleGenerateInvoice = async (eventId: string) => {
+    if (generatingId) return;
     try {
-      const now = currentStatus ? null : new Date().toISOString();
+      setGeneratingId(eventId);
       
-      // Optimistic update a UI-on az azonnali válaszidőhöz
-      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, sent_to_billing: !currentStatus, sent_at: now } : e));
+      const { data, error } = await supabase.functions.invoke('generate-invoice', {
+        body: { event_id: eventId }
+      });
 
-      const { error } = await supabase
-        .from('billing_events')
-        .update({ sent_to_billing: !currentStatus, sent_at: now })
-        .eq('id', eventId);
-        
       if (error) {
-         console.error('Hiba frissítéskor:', error);
-         fetchEvents(); // Ha adatbázis hiba volt, állítsuk vissza az eredeti állapotot 
-         alert('Nem sikerült frissíteni a státuszt! Lefutott az SQL migráció?');
+        console.error('Edge Function hiba:', error);
+        alert('Hiba a számla generálásakor: ' + error.message);
+        return;
       }
-    } catch (error) {
+
+      if (data && data.success) {
+        // Optimistic update
+        setEvents(prev => prev.map(e => e.id === eventId ? { 
+          ...e, 
+          sent_to_billing: true, 
+          sent_at: new Date().toISOString(),
+          invoice_number: data.invoice_number
+        } : e));
+      } else {
+        alert('Ismeretlen hiba: ' + JSON.stringify(data));
+      }
+    } catch (error: any) {
       console.error(error);
+      alert('Hálózati hiba: ' + error.message);
+    } finally {
+      setGeneratingId(null);
     }
   };
 
@@ -189,16 +203,22 @@ export default function Billing() {
                            </td>
                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                <button 
-                                   onClick={() => toggleBillingStatus(event.id, event.sent_to_billing)}
+                                   onClick={() => !event.sent_to_billing && handleGenerateInvoice(event.id)}
+                                   disabled={generatingId === event.id || event.sent_to_billing}
                                    className={clsx("inline-flex items-center px-3 py-1.5 rounded-lg font-medium text-sm transition-all shadow-sm ring-1 ring-inset",
                                       event.sent_to_billing 
-                                          ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 ring-emerald-600/20 dark:ring-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40" 
-                                          : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 ring-slate-300 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white")}
+                                          ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 ring-emerald-600/20 dark:ring-emerald-800" 
+                                          : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 ring-slate-300 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white disabled:opacity-50")}
                                 >
-                                   {event.sent_to_billing ? (
-                                       <><CheckCircle className="w-4 h-4 mr-1.5" /> Kiszámlázva</>
+                                   {generatingId === event.id ? (
+                                       <><Clock className="w-4 h-4 mr-1.5 animate-spin" /> Generálás...</>
+                                   ) : event.sent_to_billing ? (
+                                       <div className="flex flex-col items-end">
+                                          <div className="flex items-center"><CheckCircle className="w-4 h-4 mr-1.5" /> Kiszámlázva</div>
+                                          {event.invoice_number && <span className="text-xs font-mono opacity-80 mt-0.5">{event.invoice_number}</span>}
+                                       </div>
                                    ) : (
-                                       <><Banknote className="w-4 h-4 mr-1.5" /> Pipa a számlázáshoz</>
+                                       <><Banknote className="w-4 h-4 mr-1.5" /> Számla kiállítása</>
                                    )}
                                </button>
                            </td>
