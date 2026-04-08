@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Search, Filter, MoreVertical, FileDown } from 'lucide-react';
+import { Plus, Search, Filter, MoreVertical, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function Clients() {
@@ -43,6 +43,32 @@ export default function Clients() {
     
     fetchClients();
   }, []);
+
+  const handleDeleteClient = async (e: React.MouseEvent, id: string, name: string) => {
+    e.stopPropagation();
+    if (!window.confirm(`Biztosan törölni szeretnéd az ügyfelet: ${name}?\n\nFigyelem: A művelet a háttérben beállított szabályok szerint az ügyfélhez kapcsolódó adatokat is törölheti. Ezt nem lehet visszavonni.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('clients')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        throw error;
+      }
+      
+      setClients(prev => prev.filter(c => c.id !== id));
+    } catch (err: any) {
+      console.error('Hiba törléskor:', err);
+      alert('Nem sikerült törölni az ügyfelet. Hiba: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -149,11 +175,11 @@ export default function Clients() {
                     <td className="whitespace-nowrap px-3 py-4 text-sm">{getStatusBadge(client.status)}</td>
                     <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-500 dark:text-slate-400">{client.created}</td>
                     <td className="relative whitespace-nowrap py-4 pl-3 pr-6 text-right text-sm font-medium">
-                      <div className="flex items-center justify-end gap-2">
-                         <button onClick={(e) => e.stopPropagation()} className="text-slate-400 hover:text-primary-600 transition-colors" title="Iratok generálása">
-                            <FileDown className="w-4 h-4" />
+                      <div className="flex items-center justify-end gap-3 px-2">
+                         <button onClick={(e) => handleDeleteClient(e, client.id, client.name)} className="text-slate-400 hover:text-rose-600 transition-colors p-1" title="Ügyfél törlése">
+                            <Trash2 className="w-4 h-4" />
                          </button>
-                         <button onClick={(e) => e.stopPropagation()} className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                         <button onClick={(e) => e.stopPropagation()} className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors p-1">
                             <MoreVertical className="w-4 h-4" />
                          </button>
                       </div>

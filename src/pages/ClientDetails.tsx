@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { UserCircle, Briefcase, FileSignature, Save, UploadCloud, Loader2, AlertCircle, CheckCircle2, Plus, Trash2, Download } from 'lucide-react';
+import { UserCircle, Briefcase, FileSignature, Save, UploadCloud, Loader2, AlertCircle, CheckCircle2, Plus, Trash2, Download, FileSpreadsheet } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
@@ -15,6 +15,7 @@ import {
   generatePepNyilatkozat,
   generateKhrNyilatkozat
 } from '../lib/pdfGenerator';
+// Removed excelService import
 
 
 export default function ClientDetails() {
@@ -38,8 +39,14 @@ export default function ClientDetails() {
   const [pdfProjectId, setPdfProjectId] = useState('');
   const [pdfType, setPdfType] = useState<
     'nyilatkozat' | 'meghatalmazás' | 'osszefoglalo' | 'horizontalis' | 
-    'tulajdonosi_nyilatkozat' | 'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat' | 'meghatalmazás_mfb' | 'debug_pdf_mfb'
+    'tulajdonosi_nyilatkozat' | 'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat' | 'meghatalmazás_mfb_ados' | 'meghatalmazás_mfb_adostars' | 'debug_pdf_mfb'
   >('nyilatkozat');
+
+  // Dokumentum Feltöltés Modal States
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [uploadDocType, setUploadDocType] = useState('Kérelem HET');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
 
 
@@ -437,8 +444,9 @@ export default function ClientDetails() {
         pdfBlob = generatePepNyilatkozat(clientData);
       } else if (pdfType === 'khr_nyilatkozat') {
         pdfBlob = generateKhrNyilatkozat(clientData);
-      } else if (pdfType === 'meghatalmazás_mfb') {
-        const result = await generateProjectDocuments(pdfProjectId);
+      } else if (pdfType === 'meghatalmazás_mfb_ados' || pdfType === 'meghatalmazás_mfb_adostars') {
+        const applicantType = pdfType === 'meghatalmazás_mfb_ados' ? 'ados' : 'adostars';
+        const result = await generateProjectDocuments(pdfProjectId, applicantType);
         if (!result.blob) throw new Error("Hiba a hivatalos MFB pdf generálásakor.");
         pdfBlob = result.blob;
       } else if (pdfType === 'debug_pdf_mfb') {
@@ -459,7 +467,8 @@ export default function ClientDetails() {
       else if (pdfType === 'tulajdonosi_hozzajarulas') typeLabel = 'Tulajdonosi_Hozzajarulas';
       else if (pdfType === 'pep_nyilatkozat') typeLabel = 'PEP_Nyilatkozat';
       else if (pdfType === 'khr_nyilatkozat') typeLabel = 'KHR_Nyilatkozat';
-      else if (pdfType === 'meghatalmazás_mfb') typeLabel = 'MFB_Hivatalos_Meghatalmazas';
+      else if (pdfType === 'meghatalmazás_mfb_ados') typeLabel = 'MFB_Hivatalos_Meghatalmazas_Ados';
+      else if (pdfType === 'meghatalmazás_mfb_adostars') typeLabel = 'MFB_Hivatalos_Meghatalmazas_Adostars';
       else if (pdfType === 'debug_pdf_mfb') typeLabel = 'DEBUG_PDF_Meghatalmazas';
 
       const timestamp = new Date().getTime();
@@ -493,6 +502,63 @@ export default function ClientDetails() {
       alert("Hiba történt az irat generálásakor: " + err.message);
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleUploadDocument = async () => {
+    if (!id || id === 'new') return;
+    if (!pdfProjectId) {
+      alert("Nincs kiválasztott projekt! Kérlek előbb indíts egyet.");
+      return;
+    }
+    if (!uploadFile) {
+      alert("Kérlek válassz ki egy feltöltendő fájlt!");
+      return;
+    }
+    
+    setIsUploadingDoc(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) throw new Error("Nincs aktív bejelentkezés");
+
+      const fileExt = uploadFile.name.split('.').pop() || 'pdf';
+      let fileTypeLabel = 'Dokumentum';
+      if (uploadDocType === 'Kérelem HET') fileTypeLabel = 'Kerelem_HET';
+      if (uploadDocType === 'Záró HET') fileTypeLabel = 'Zaro_HET';
+      if (uploadDocType === 'Hiánypótlás') fileTypeLabel = 'Hianypotlas';
+      if (uploadDocType === 'Árajánlat') fileTypeLabel = 'Arajanlat';
+
+      const fileName = `${pdfProjectId}_${fileTypeLabel}_${Date.now()}.${fileExt}`;
+      const newStoragePath = `${sessionData.session.user.id}/${pdfProjectId}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(newStoragePath, uploadFile);
+      if (uploadError) throw uploadError;
+
+      const { data: insertedDoc, error: insertError } = await supabase
+        .from('documents')
+        .insert([{
+          project_id: pdfProjectId,
+          doc_type: uploadDocType,
+          storage_path: newStoragePath,
+          uploaded_by: sessionData.session.user.id
+        }])
+        .select()
+        .single();
+      if (insertError) throw insertError;
+      
+      if (insertedDoc) {
+          setDocuments(prev => [insertedDoc, ...prev]);
+      }
+      
+      setIsUploadModalOpen(false);
+      setUploadFile(null);
+    } catch (err: any) {
+      console.error("Hiba a feltöltéskor:", err);
+      alert("Hiba: " + err.message);
+    } finally {
+      setIsUploadingDoc(false);
     }
   };
 
@@ -583,6 +649,15 @@ export default function ClientDetails() {
             </p>
          </div>
          <div className="flex space-x-3">
+             <button 
+               type="button"
+               onClick={() => setIsUploadModalOpen(true)}
+               disabled={id === 'new'}
+               className="inline-flex items-center justify-center rounded-xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm ring-1 ring-inset ring-emerald-600/20 hover:bg-emerald-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+               <UploadCloud className="w-4 h-4 mr-2" />
+               Dokumentum Feltöltés
+             </button>
+
              <button 
                type="button"
                onClick={() => {
@@ -869,7 +944,7 @@ export default function ClientDetails() {
                            else if (doc.doc_type === 'het_final') friendlyName = 'HET megvalósult állapot';
                            else if (doc.doc_type === 'árajánlat') friendlyName = 'Árajánlat / Költségvetés';
                            else if (doc.doc_type === 'nyilatkozat') friendlyName = 'Adatvédelmi Nyilatkozat';
-                           else if (doc.doc_type === 'meghatalmazás') friendlyName = 'Meghatalmazás (MFB - Hivatalos)';
+                           else if (doc.doc_type === 'meghatalmazás') friendlyName = 'Meghatalmazás (Hagyományos)';
                            else if (doc.doc_type === 'osszefoglalo') friendlyName = 'Összefoglaló Nyilatkozat';
                            else if (doc.doc_type === 'horizontalis') friendlyName = 'Horizontális Követelmények';
                            else if (doc.doc_type === 'hiánypótlás') friendlyName = 'Hiánypótlás';
@@ -989,7 +1064,8 @@ export default function ClientDetails() {
                      <option value="tulajdonosi_hozzajarulas">Tulajdonosi Hozzájárulás</option>
                      <option value="pep_nyilatkozat">Közszereplői (PEP) Nyilatkozat</option>
                      <option value="khr_nyilatkozat">KHR Nyilatkozat</option>
-                     <option value="meghatalmazás_mfb" className="font-bold text-primary-600">MFB Hivatalos Meghatalmazás</option>
+                     <option value="meghatalmazás_mfb_ados" className="font-bold text-primary-600">MFB Hivatalos meghatalmazás - adós</option>
+                     <option value="meghatalmazás_mfb_adostars" className="font-bold text-primary-600">MFB Hivatalos meghatalmazás - adóstárs</option>
                      <option value="debug_pdf_mfb" className="italic text-slate-500">PDF Sablon Teszt (Debug)</option>
                   </select>
                </div>
@@ -1015,6 +1091,82 @@ export default function ClientDetails() {
         </div>
       )}
       
+      {/* Dokumentum Feltöltő Modal (HET, Árajánlat, Hiánypótlás) */}
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800">
+            <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+               <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center">
+                  <UploadCloud className="w-5 h-5 mr-2 text-emerald-500" />
+                  Dokumentum Feltöltése
+               </h3>
+            </div>
+            
+            <div className="p-6 space-y-5">
+               <div className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300 text-xs p-4 rounded-xl flex items-start leading-relaxed border border-emerald-100 dark:border-emerald-800/50">
+                  <AlertCircle className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                  <div>Ebbe a modulba kizárólag érintetlen, nyers (például AVDH-val kódolt) fájlok tölthetők fel (Storage Upload API). A rendszer garantálja, hogy a feltöltés a fájlok módosítása nélkül történik!</div>
+               </div>
+               
+               <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Melyik projekthez kapcsolódik?</label>
+                  <select
+                     value={pdfProjectId}
+                     onChange={e => setPdfProjectId(e.target.value)}
+                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-3 px-4 text-sm focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white"
+                  >
+                     {activeProjects.length === 0 && <option value="">Nincs mentett projekt!</option>}
+                     {activeProjects.map(p => (
+                       <option value={p.id} key={p.id}>{p.notes || `Projekt #${p.id.substring(0,8)}`}</option>
+                     ))}
+                  </select>
+               </div>
+
+               <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Feltöltés típusa</label>
+                  <select
+                     value={uploadDocType}
+                     onChange={e => setUploadDocType(e.target.value)}
+                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-3 px-4 text-sm focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white"
+                  >
+                     <option value="Kérelem HET">HET/ML156U - Kölcsönkérelem benyújtásához (Kezdeti+Tervezett)</option>
+                     <option value="Záró HET">HET/ML156U - Záró nyilatkozat</option>
+                     <option value="Hiánypótlás">Hiánypótlás (Kódolt PDF / Egyéb)</option>
+                     <option value="Árajánlat">Lepecsételt árajánlat</option>
+                  </select>
+               </div>
+
+               <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Fájl (PDF vagy Excel)</label>
+                  <input
+                     type="file"
+                     accept=".pdf,.xls,.xlsx"
+                     onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-2.5 px-3 text-sm focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                  />
+               </div>
+            </div>
+
+            <div className="px-6 py-5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 rounded-b-2xl">
+              <button 
+                onClick={() => { setIsUploadModalOpen(false); setUploadFile(null); }}
+                className="px-5 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-700"
+              >
+                Mégse
+              </button>
+              <button 
+                onClick={handleUploadDocument}
+                disabled={isUploadingDoc || !uploadFile || !pdfProjectId}
+                className="px-5 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-xl shadow-md shadow-emerald-500/20 hover:bg-emerald-700 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+              >
+                {isUploadingDoc ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <UploadCloud className="w-4 h-4 mr-2" />}
+                {isUploadingDoc ? 'Feltöltés folyamatban...' : 'Feltöltés a Dokumentumtárba'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Új Projekt Modal */}
       {isProjectModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">

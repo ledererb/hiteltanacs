@@ -172,7 +172,7 @@ export async function generateAndUploadOfficialDocument(
  * Összegyűjti az összes szükséges adatot az adatbázisból (Supabase), majd
  * lemapeli az AcroForm mezőkre a pdfMappings.ts fájl segítségével.
  */
-export async function generateProjectDocuments(projectId: string) {
+export async function generateProjectDocuments(projectId: string, applicantType: 'ados' | 'adostars' = 'ados') {
   try {
     // 1. Projekt és Ügyfél Adatok letöltése
     const { data: projectData, error: projectError } = await supabase
@@ -189,37 +189,50 @@ export async function generateProjectDocuments(projectId: string) {
     const clientRecord = Array.isArray(client) ? client[0] : client;
 
     // 2. Belső Adatstruktúra ("Source Data") összeállítása
-    const safeBirthPlace = clientRecord.birth_place || '';
-    const safeBirthDate = clientRecord.birth_date || '';
-    
-    // Csak azt fűzzük össze ami megvan, ha egyik sincs akkor üres string
-    const birthPlaceAndDate = (safeBirthPlace ? safeBirthPlace + ', ' : '') + safeBirthDate;
-
-    // Cím darabok összefűzése undefined mentesen
-    const fullAddress = [
-      clientRecord.postal_code, 
-      clientRecord.city, 
-      clientRecord.street, 
-      clientRecord.house_number
-    ].filter(Boolean).join(' ');
-
+    let sourceData: Record<string, any>;
     const formattedDate = new Intl.DateTimeFormat('hu-HU', { 
          year: 'numeric', 
          month: '2-digit', 
          day: '2-digit' 
     }).format(new Date());
 
-    const sourceData: Record<string, any> = {
-      clientName: clientRecord.name || '',
-      clientBirthName: clientRecord.birth_name || '',
-      clientBirthPlaceAndDate: birthPlaceAndDate || '',
-      clientMotherName: clientRecord.mothers_name || '',
-      clientAddress: fullAddress || '',
-      clientTaxNumber: clientRecord.tax_id || '',
-      creationCity: '', // Egyelőre üresen hagyjuk a várost
-      creationDate: formattedDate,
-      emptyField: ''
-    };
+    if (applicantType === 'ados') {
+      const safeBirthPlace = clientRecord.birth_place || '';
+      const safeBirthDate = clientRecord.birth_date || '';
+      
+      const birthPlaceAndDate = (safeBirthPlace ? safeBirthPlace + ', ' : '') + safeBirthDate;
+
+      const fullAddress = [
+        clientRecord.postal_code, 
+        clientRecord.city, 
+        clientRecord.street, 
+        clientRecord.house_number
+      ].filter(Boolean).join(' ');
+
+      sourceData = {
+        clientName: clientRecord.name || '',
+        clientBirthName: clientRecord.birth_name || '',
+        clientBirthPlaceAndDate: birthPlaceAndDate || '',
+        clientMotherName: clientRecord.mothers_name || '',
+        clientAddress: fullAddress || '',
+        clientTaxNumber: clientRecord.tax_id || '',
+        creationCity: '', // Egyelőre üresen hagyjuk a várost
+        creationDate: formattedDate,
+        emptyField: ''
+      };
+    } else {
+      sourceData = {
+        clientName: clientRecord.co_client_name || clientRecord.co_debtor_name || '',
+        clientBirthName: '',
+        clientBirthPlaceAndDate: '',
+        clientMotherName: '',
+        clientAddress: clientRecord.co_client_address || '',
+        clientTaxNumber: clientRecord.co_client_tax_id || '',
+        creationCity: '',
+        creationDate: formattedDate,
+        emptyField: ''
+      };
+    }
 
     // 3. Adatok Lemapelése a PDF form field-jeire a mapping objektum alapján
     const pdfDataToFill: PdfDataMapping = {};
@@ -234,12 +247,13 @@ export async function generateProjectDocuments(projectId: string) {
 
     // 4. A PDF Generáló Core Hívása (Egyelőre a Meghatalmazás_KEHOP-ra példaként)
     const templateName = 'ML104U-Megbizott-penzugyi-tanacsado-meghatalmazasa_KEHOP.pdf';
-    const safeClientName = clientRecord.name.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeClientName = (sourceData.clientName || 'ugyfel').replace(/[^a-zA-Z0-9]/g, '_');
+    const suffix = applicantType === 'ados' ? "Ados" : "Adostars";
     const result = await generateAndUploadOfficialDocument(
       templateName,
       pdfDataToFill,
       projectId,
-      `Hivatalos_MFB_Meghatalmazas_${safeClientName}.pdf`
+      `Hivatalos_MFB_Meghatalmazas_${suffix}_${safeClientName}.pdf`
     );
 
     if (result.error) throw result.error;

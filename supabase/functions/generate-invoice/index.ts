@@ -19,7 +19,7 @@ serve(async (req: Request) => {
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
     );
 
-    const { event_id } = await req.json();
+    const { event_id, is_final } = await req.json();
 
     if (!event_id) {
       throw new Error("Missing event_id payload.");
@@ -61,6 +61,7 @@ serve(async (req: Request) => {
             <valaszVerzio>2</valaszVerzio>
         </beallitasok>
         <fejlec>
+            ${!is_final ? '<dijbekero>true</dijbekero>' : ''}
             <keltDatum>${new Date().toISOString().split('T')[0]}</keltDatum>
             <teljesitesDatum>${new Date().toISOString().split('T')[0]}</teljesitesDatum>
             <fizetesiHataridoDatum>${new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}</fizetesiHataridoDatum>
@@ -102,17 +103,25 @@ serve(async (req: Request) => {
     // 3. Szimulált 2 másodperces hálózati késleltetés
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // MOCK Számlaszám generálása
-    const mockInvoiceNumber = `TESZT-2026-${Math.floor(Math.random() * 899 + 100)}`;
+    // MOCK Díjbekérő vagy Végszámla sorszám generálása
+    const mockInvoiceNumber = is_final 
+        ? `VSZ-2026-${Math.floor(Math.random() * 899 + 100)}`
+        : `DB-2026-${Math.floor(Math.random() * 899 + 100)}`;
 
     // 4. Esemény frissítése a Supabase adatbázisban
+    const updatePayload: any = {
+         sent_to_billing: true,
+         sent_at: new Date().toISOString()
+    };
+    if (is_final) {
+         updatePayload.final_invoice_number = mockInvoiceNumber;
+    } else {
+         updatePayload.invoice_number = mockInvoiceNumber;
+    }
+
     const { error: updateError } = await supabaseClient
       .from('billing_events')
-      .update({
-         sent_to_billing: true,
-         sent_at: new Date().toISOString(),
-         invoice_number: mockInvoiceNumber
-      })
+      .update(updatePayload)
       .eq('id', event_id);
 
     if (updateError) {
@@ -122,7 +131,7 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ 
       success: true, 
       invoice_number: mockInvoiceNumber, 
-      message: "Számla sikeresen generálva (MOCK)."
+      message: is_final ? "Végszámla sikeresen generálva (MOCK)." : "Díjbekérő sikeresen generálva (MOCK)."
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,

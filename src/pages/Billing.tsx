@@ -11,6 +11,7 @@ interface BillingEvent {
   sent_to_billing: boolean;
   sent_at: string | null;
   invoice_number?: string | null;
+  final_invoice_number?: string | null;
   created_at: string;
   project: {
     notes: string;
@@ -36,7 +37,7 @@ export default function Billing() {
       const { data, error } = await supabase
         .from('billing_events')
         .select(`
-          id, event_type, amount_huf, sent_to_billing, sent_at, invoice_number, created_at,
+          id, event_type, amount_huf, sent_to_billing, sent_at, invoice_number, final_invoice_number, created_at,
           projects(notes, clients(name))
         `)
         .order('created_at', { ascending: false });
@@ -61,18 +62,18 @@ export default function Billing() {
     }
   }
 
-  const handleGenerateInvoice = async (eventId: string) => {
+  const handleGenerateInvoice = async (eventId: string, isFinal: boolean = false) => {
     if (generatingId) return;
     try {
       setGeneratingId(eventId);
       
       const { data, error } = await supabase.functions.invoke('generate-invoice', {
-        body: { event_id: eventId }
+        body: { event_id: eventId, is_final: isFinal }
       });
 
       if (error) {
         console.error('Edge Function hiba:', error);
-        alert('Hiba a számla generálásakor: ' + error.message);
+        alert('Hiba a generálásakor: ' + error.message);
         return;
       }
 
@@ -82,7 +83,7 @@ export default function Billing() {
           ...e, 
           sent_to_billing: true, 
           sent_at: new Date().toISOString(),
-          invoice_number: data.invoice_number
+          ...(isFinal ? { final_invoice_number: data.invoice_number } : { invoice_number: data.invoice_number })
         } : e));
       } else {
         alert('Ismeretlen hiba: ' + JSON.stringify(data));
@@ -120,7 +121,7 @@ export default function Billing() {
                 <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
             </div>
             <div>
-                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400 transition-colors">Kiszámlázásra vár</p>
+                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400 transition-colors">Díjbekérőre vár</p>
                  <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1 transition-colors">
                     {new Intl.NumberFormat('hu-HU', { style: 'currency', currency: 'HUF', maximumFractionDigits: 0 }).format(totalOutstanding)}
                  </p>
@@ -131,7 +132,7 @@ export default function Billing() {
                 <CheckCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
-                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400 transition-colors">Már kiszámlázva (Összesen)</p>
+                 <p className="text-sm font-medium text-slate-500 dark:text-slate-400 transition-colors">Díjbekérőn lévő összeg</p>
                  <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1 transition-colors">
                     {new Intl.NumberFormat('hu-HU', { style: 'currency', currency: 'HUF', maximumFractionDigits: 0 }).format(totalBilled)}
                  </p>
@@ -202,25 +203,36 @@ export default function Billing() {
                                {new Intl.NumberFormat('hu-HU', { style: 'currency', currency: 'HUF', maximumFractionDigits: 0 }).format(event.amount_huf)}
                            </td>
                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                               <button 
-                                   onClick={() => !event.sent_to_billing && handleGenerateInvoice(event.id)}
-                                   disabled={generatingId === event.id || event.sent_to_billing}
-                                   className={clsx("inline-flex items-center px-3 py-1.5 rounded-lg font-medium text-sm transition-all shadow-sm ring-1 ring-inset",
-                                      event.sent_to_billing 
-                                          ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 ring-emerald-600/20 dark:ring-emerald-800" 
-                                          : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 ring-slate-300 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white disabled:opacity-50")}
-                                >
+                               <div className="flex flex-col items-end gap-2">
                                    {generatingId === event.id ? (
-                                       <><Clock className="w-4 h-4 mr-1.5 animate-spin" /> Generálás...</>
+                                       <button disabled className="inline-flex items-center px-3 py-1.5 rounded-lg font-medium text-sm transition-all shadow-sm ring-1 ring-inset bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 ring-slate-300 dark:ring-slate-700 disabled:opacity-50">
+                                           <Clock className="w-4 h-4 mr-1.5 animate-spin" /> Generálás...
+                                       </button>
+                                   ) : event.final_invoice_number ? (
+                                       <div className="flex flex-col items-end">
+                                          <div className="flex items-center text-emerald-700 dark:text-emerald-400 font-medium px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg shadow-sm ring-1 ring-inset ring-emerald-600/20 dark:ring-emerald-800"><CheckCircle className="w-4 h-4 mr-1.5" /> Fizetve / Számlázva</div>
+                                          <span className="text-xs font-mono opacity-80 mt-1.5">{event.invoice_number} | {event.final_invoice_number}</span>
+                                       </div>
                                    ) : event.sent_to_billing ? (
                                        <div className="flex flex-col items-end">
-                                          <div className="flex items-center"><CheckCircle className="w-4 h-4 mr-1.5" /> Kiszámlázva</div>
-                                          {event.invoice_number && <span className="text-xs font-mono opacity-80 mt-0.5">{event.invoice_number}</span>}
+                                          <div className="flex items-center text-amber-700 dark:text-amber-400 font-medium px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 rounded-lg shadow-sm ring-1 ring-inset ring-amber-600/20 dark:ring-amber-800 mb-2"><AlertCircle className="w-4 h-4 mr-1.5" /> Díjbekérő kiküldve</div>
+                                          <button 
+                                              onClick={() => handleGenerateInvoice(event.id, true)}
+                                              className="inline-flex items-center px-3 py-1.5 rounded-lg font-medium text-sm transition-all shadow-sm ring-1 ring-inset bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 ring-slate-300 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white"
+                                          >
+                                              <Banknote className="w-4 h-4 mr-1.5" /> Pénz beérkezett (Végszámla)
+                                          </button>
+                                          {event.invoice_number && <span className="text-xs font-mono opacity-80 mt-1.5">{event.invoice_number}</span>}
                                        </div>
                                    ) : (
-                                       <><Banknote className="w-4 h-4 mr-1.5" /> Számla kiállítása</>
+                                       <button 
+                                           onClick={() => handleGenerateInvoice(event.id, false)}
+                                           className="inline-flex items-center px-3 py-1.5 rounded-lg font-medium text-sm transition-all shadow-sm ring-1 ring-inset bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 ring-slate-300 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white"
+                                       >
+                                           <Banknote className="w-4 h-4 mr-1.5" /> Díjbekérő kiállítása
+                                       </button>
                                    )}
-                               </button>
+                               </div>
                            </td>
                         </tr>
                      ))
