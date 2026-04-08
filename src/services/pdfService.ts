@@ -17,6 +17,130 @@ function sanitizeHungarianString(text: string): string {
 }
 
 /**
+ * Általános nyilatkozatok (KHR, PEP, Tulajdonosi, stb) hardcoded kitöltése.
+ * Széles körben összegyűjti az összes lehetséges PDF belső űrlapmező nevet, és lemapeli
+ * azokat az egységes ügyfél adatokra.
+ */
+export function applyAllNyilatkozatFields(form: any, client: any) {
+  const fields = form.getFields();
+  
+  fields.forEach((field: any) => {
+    const fieldName = field.getName();
+    
+    if (field instanceof PDFTextField) {
+      console.log(`[Nyilatkozat Mapping] Ellenőrzött mező: "${fieldName}"`);
+
+      const birthPlace = client.birth_place || '';
+      const birthDate = client.birth_date || '';
+      const birthData = [birthPlace, birthDate].filter(Boolean).join(', ');
+      
+      const coDebtorBirthPlace = client.co_debtor_birth_place || '';
+      const coDebtorBirthDate = client.co_debtor_birth_date || '';
+      const coDebtorBirthData = [coDebtorBirthPlace, coDebtorBirthDate].filter(Boolean).join(', ');
+      
+      const fullAddress = client.address || client.full_address || '';
+
+      switch (fieldName) {
+        // --- NÉV ---
+        case 'lulírott':
+        case 'Családi és utónév_3':
+        case 'Családi és utónév':
+        case 'KI':
+        case 'név':
+        case 'HN':
+          field.setText(sanitizeHungarianString(client.name || ''));
+          break;
+          
+        // --- ADÓSTÁRS NEVE ---
+        case 'Családi és utónév_2':
+        case 'Név_2':
+          field.setText(sanitizeHungarianString(client.co_debtor_name || client.co_debtor || ''));
+          break;
+
+        // --- SZÜLETÉSI NÉV ---
+        case 'születési név':
+        case 'Születési családi és utónév':
+        case 'Születési név':
+        case 'HSZN':
+          field.setText(sanitizeHungarianString(client.birth_name || ''));
+          break;
+
+        // --- ADÓSTÁRS SZÜLETÉSI NÉV ---
+        case 'Születési családi és utónév_2':
+        case 'Születési név_2':
+          field.setText(sanitizeHungarianString(client.co_debtor_birth_name || client.co_debtor_name || client.co_debtor || ''));
+          break;
+
+        // --- ANYJA NEVE ---
+        case 'anyja születési neve':
+        case 'nyja születési neve':
+        case 'Anyja születési neve':
+        case 'HAN':
+          field.setText(sanitizeHungarianString(client.mothers_name || ''));
+          break;
+
+        // --- ADÓSTÁRS ANYJA NEVE ---
+        case 'Anyja születési neve_2':
+          field.setText(sanitizeHungarianString(client.co_debtor_mothers_name || ''));
+          break;
+
+        // --- SZÜLETÉSI HELY ÉS IDŐ EGYBEN ---
+        case 'fill_4_2':
+        case 'születés':
+        case 'HSZH':
+          field.setText(sanitizeHungarianString(birthData));
+          break;
+
+        // --- ADÓSTÁRS SZÜLETÉSI HELY ÉS IDŐ EGYBEN ---
+        case 'Születési hely és idő_2':
+          field.setText(sanitizeHungarianString(coDebtorBirthData));
+          break;
+
+        // --- SZÜLETÉSI HELY KÜLÖN ---
+        case 'Születési hely_3':
+        case 'Születési hely':
+          field.setText(sanitizeHungarianString(client.birth_place || ''));
+          break;
+
+        // --- ADÓSTÁRS SZÜLETÉSI HELY KÜLÖN ---
+        case 'Születési hely_2':
+          field.setText(sanitizeHungarianString(client.co_debtor_birth_place || ''));
+          break;
+
+        // --- SZÜLETÉSI IDŐ KÜLÖN ---
+        case 'fill_11_2':
+        case 'fill_12':
+          field.setText(sanitizeHungarianString(client.birth_date || ''));
+          break;
+
+        // --- LAKCÍM ---
+        case 'állandó lakhely':
+        case 'Lakcím4':
+        case 'HÁL':
+        case 'Kitöltő_lakcíme':
+          field.setText(sanitizeHungarianString(fullAddress));
+          break;
+
+        // --- ADÓSTÁRS LAKCÍM ---
+        case 'Lakcím4_2':
+          field.setText(sanitizeHungarianString(client.co_debtor_address || ''));
+          break;
+
+        // --- IGAZOLVÁNY ---
+        case 'személyi igazolvány száma':
+          field.setText(sanitizeHungarianString(client.id_card_number || ''));
+          break;
+
+        // --- ÁLLAMPOLGÁRSÁG ---
+        case 'Állampolgárság':
+          field.setText(sanitizeHungarianString(client.nationality || 'Magyar'));
+          break;
+      }
+    }
+  });
+}
+
+/**
  * 💡 SEGÉDLET FEJLESZTŐKNEK: MEZŐNEVEK KINYERÉSE
  * 
  * Mielőtt az adatok mapelését megírnád, tudnod kell, milyen pontos neveken
@@ -51,6 +175,7 @@ export interface PdfDataMapping {
   // A kulcsnak PONTOSAN egyeznie kell a PDF-ben definiált Field névvel.
   [fieldName: string]: string | boolean; 
 }
+
 
 /**
  * Hivatalos űrlapot tölt ki adatokkal, laposítja (szerkeszthetetlenné teszi), 
@@ -202,12 +327,14 @@ export async function generateProjectDocuments(projectId: string, applicantType:
       
       const birthPlaceAndDate = (safeBirthPlace ? safeBirthPlace + ', ' : '') + safeBirthDate;
 
-      const fullAddress = [
+      const fullAddressParts = [
         clientRecord.postal_code, 
         clientRecord.city, 
         clientRecord.street, 
         clientRecord.house_number
       ].filter(Boolean).join(' ');
+
+      const fullAddress = clientRecord.full_address || fullAddressParts;
 
       sourceData = {
         clientName: clientRecord.name || '',
@@ -221,12 +348,16 @@ export async function generateProjectDocuments(projectId: string, applicantType:
         emptyField: ''
       };
     } else {
+      const safeBirthPlace = clientRecord.co_debtor_birth_place || '';
+      const safeBirthDate = clientRecord.co_debtor_birth_date || '';
+      const birthPlaceAndDate = (safeBirthPlace ? safeBirthPlace + ', ' : '') + safeBirthDate;
+
       sourceData = {
-        clientName: clientRecord.co_client_name || clientRecord.co_debtor_name || '',
-        clientBirthName: '',
-        clientBirthPlaceAndDate: '',
-        clientMotherName: '',
-        clientAddress: clientRecord.co_client_address || '',
+        clientName: clientRecord.co_debtor_name || clientRecord.co_client_name || '',
+        clientBirthName: clientRecord.co_debtor_birth_name || '',
+        clientBirthPlaceAndDate: birthPlaceAndDate || '',
+        clientMotherName: clientRecord.co_debtor_mothers_name || '',
+        clientAddress: clientRecord.co_debtor_address || clientRecord.co_client_address || '',
         clientTaxNumber: clientRecord.co_client_tax_id || '',
         creationCity: '',
         creationDate: formattedDate,

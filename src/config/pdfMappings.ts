@@ -11,7 +11,7 @@ export const meghatalmazasAdosMapping: Record<string, string> = {
   '2': 'clientBirthPlaceAndDate',
   '3': 'clientMotherName',
   '4': 'clientAddress',
-  '5': 'clientTaxNumber',
+  '5': 'emptyField',
   '6': 'emptyField',
   '7': 'emptyField',
   '8': 'emptyField',

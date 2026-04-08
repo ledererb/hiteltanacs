@@ -1,20 +1,11 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { UserCircle, Briefcase, FileSignature, Save, UploadCloud, Loader2, AlertCircle, CheckCircle2, Plus, Trash2, Download, FileSpreadsheet } from 'lucide-react';
+import { UserCircle, Briefcase, FileSignature, Save, UploadCloud, Loader2, AlertCircle, CheckCircle2, Plus, Trash2, Download } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import clsx from 'clsx';
-import { generateProjectDocuments, generateDebugPdf } from '../services/pdfService';
-import { 
-  generateMeghatalmazas, 
-  generateNyilatkozat, 
-  generateOsszefoglaloNyilatkozat, 
-  generateHorizontalis,
-  generateTulajdonosiNyilatkozat,
-  generateTulajdonosiHozzajarulas,
-  generatePepNyilatkozat,
-  generateKhrNyilatkozat
-} from '../lib/pdfGenerator';
+import { generateProjectDocuments, generateDebugPdf, applyAllNyilatkozatFields } from '../services/pdfService';
+import { PDFDocument } from 'pdf-lib';
 // Removed excelService import
 
 
@@ -38,9 +29,10 @@ export default function ClientDetails() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfProjectId, setPdfProjectId] = useState('');
   const [pdfType, setPdfType] = useState<
-    'nyilatkozat' | 'meghatalmazás' | 'osszefoglalo' | 'horizontalis' | 
-    'tulajdonosi_nyilatkozat' | 'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat' | 'meghatalmazás_mfb_ados' | 'meghatalmazás_mfb_adostars' | 'debug_pdf_mfb'
-  >('nyilatkozat');
+    'osszefoglalo' | 'horizontalis' | 'tulajdonosi_nyilatkozat' | 
+    'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat' | 'meghatalmazás_mfb_ados' | 'meghatalmazás_mfb_adostars' | 'debug_pdf_mfb'
+  >('khr_nyilatkozat');
+  const [lastTemplateFileName, setLastTemplateFileName] = useState<string>('ML104U-Megbizott-penzugyi-tanacsado-meghatalmazasa_KEHOP.pdf');
 
   // Dokumentum Feltöltés Modal States
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -85,7 +77,14 @@ export default function ClientDetails() {
       birth_place: '',
       birth_date: '',
       mothers_name: '',
-      tax_id: ''
+      tax_id: '',
+      id_card_number: '',
+      full_address: '',
+      co_debtor_birth_name: '',
+      co_debtor_birth_place: '',
+      co_debtor_birth_date: '',
+      co_debtor_mothers_name: '',
+      co_debtor_address: ''
     }
   });
 
@@ -110,7 +109,14 @@ export default function ClientDetails() {
               birth_place: client.birth_place || '',
               birth_date: client.birth_date || '',
               mothers_name: client.mothers_name || '',
-              tax_id: client.tax_id || ''
+              tax_id: client.tax_id || '',
+              id_card_number: client.id_card_number || '',
+              full_address: client.full_address || '',
+              co_debtor_birth_name: client.co_debtor_birth_name || '',
+              co_debtor_birth_place: client.co_debtor_birth_place || '',
+              co_debtor_birth_date: client.co_debtor_birth_date || '',
+              co_debtor_mothers_name: client.co_debtor_mothers_name || '',
+              co_debtor_address: client.co_debtor_address || ''
             });
             setOwners(client.owners || []);
             setExistingLoans(client.existing_loans || []);
@@ -147,7 +153,7 @@ export default function ClientDetails() {
       
       fetchClientInfo();
     } else {
-      reset({ name: '', co_debtor: '', income: '', email: '', birth_name: '', birth_place: '', birth_date: '', mothers_name: '', tax_id: '' });
+      reset({ name: '', co_debtor: '', income: '', email: '', birth_name: '', birth_place: '', birth_date: '', mothers_name: '', tax_id: '', id_card_number: '', full_address: '', co_debtor_birth_name: '', co_debtor_birth_place: '', co_debtor_birth_date: '', co_debtor_mothers_name: '', co_debtor_address: '' });
       setOwners([]);
       setExistingLoans([]);
       setActiveProjects([]);
@@ -172,6 +178,11 @@ export default function ClientDetails() {
       const payload = {
         name: data.name,
         co_debtor_name: data.co_debtor,
+        co_debtor_birth_name: data.co_debtor_birth_name,
+        co_debtor_birth_place: data.co_debtor_birth_place,
+        co_debtor_birth_date: data.co_debtor_birth_date,
+        co_debtor_mothers_name: data.co_debtor_mothers_name,
+        co_debtor_address: data.co_debtor_address,
         income_data: { net_income: data.income ? parseInt(data.income) : 0 },
         owners: owners,
         existing_loans: existingLoans,
@@ -181,6 +192,8 @@ export default function ClientDetails() {
         birth_date: data.birth_date,
         mothers_name: data.mothers_name,
         tax_id: data.tax_id,
+        id_card_number: data.id_card_number,
+        full_address: data.full_address,
         user_id: user.id
       };
 
@@ -416,60 +429,85 @@ export default function ClientDetails() {
     
     try {
       const formValues = getValues();
-      const projectMatch = activeProjects.find(p => p.id === pdfProjectId);
 
-      const clientData = {
-        clientName: formValues.name,
-        coDebtorName: formValues.co_debtor,
-        projectNotes: projectMatch?.notes,
-        investmentItems: projectMatch?.investment_items,
-        owners: owners,
-        existingLoans: existingLoans
-      };
+      let pdfBlob: Blob | undefined;
+      let typeLabel = '';
 
-      let pdfBlob: Blob;
-      if (pdfType === 'nyilatkozat') {
-        pdfBlob = generateNyilatkozat(clientData);
-      } else if (pdfType === 'meghatalmazás') {
-        pdfBlob = generateMeghatalmazas(clientData);
-      } else if (pdfType === 'osszefoglalo') {
-        pdfBlob = generateOsszefoglaloNyilatkozat(clientData);
-      } else if (pdfType === 'horizontalis') {
-        pdfBlob = generateHorizontalis(clientData);
-      } else if (pdfType === 'tulajdonosi_nyilatkozat') {
-        pdfBlob = generateTulajdonosiNyilatkozat(clientData);
-      } else if (pdfType === 'tulajdonosi_hozzajarulas') {
-        pdfBlob = generateTulajdonosiHozzajarulas(clientData);
-      } else if (pdfType === 'pep_nyilatkozat') {
-        pdfBlob = generatePepNyilatkozat(clientData);
-      } else if (pdfType === 'khr_nyilatkozat') {
-        pdfBlob = generateKhrNyilatkozat(clientData);
-      } else if (pdfType === 'meghatalmazás_mfb_ados' || pdfType === 'meghatalmazás_mfb_adostars') {
+      if (pdfType === 'meghatalmazás_mfb_ados' || pdfType === 'meghatalmazás_mfb_adostars') {
         const applicantType = pdfType === 'meghatalmazás_mfb_ados' ? 'ados' : 'adostars';
         const result = await generateProjectDocuments(pdfProjectId, applicantType);
         if (!result.blob) throw new Error("Hiba a hivatalos MFB pdf generálásakor.");
         pdfBlob = result.blob;
+        typeLabel = pdfType === 'meghatalmazás_mfb_ados' ? 'MFB_Hivatalos_Meghatalmazas_Ados' : 'MFB_Hivatalos_Meghatalmazas_Adostars';
+        setLastTemplateFileName('ML104U-Megbizott-penzugyi-tanacsado-meghatalmazasa_KEHOP.pdf');
       } else if (pdfType === 'debug_pdf_mfb') {
-        const result = await generateDebugPdf('ML104U-Megbizott-penzugyi-tanacsado-meghatalmazasa_KEHOP.pdf');
+        const result = await generateDebugPdf(lastTemplateFileName);
         if (!result.blob) throw new Error("Hiba a debug PDF generálásakor.");
         pdfBlob = result.blob;
+        typeLabel = 'DEBUG_PDF_Meghatalmazas';
       } else {
-        throw new Error("Ismeretlen PDF típus");
+        let templateFileName = '';
+
+        if (pdfType === 'khr_nyilatkozat') {
+          templateFileName = 'KHR nyilatkozat.pdf';
+          typeLabel = 'KHR_nyilatkozat';
+        } else if (pdfType === 'pep_nyilatkozat') {
+          templateFileName = 'Kiemelt közszereplői nyilatkozat.pdf';
+          typeLabel = 'Kiemelt_kozszereploi_nyilatkozat';
+        } else if (pdfType === 'tulajdonosi_nyilatkozat') {
+          templateFileName = 'Tényleges tulajdonosi nyilatkozat.pdf';
+          typeLabel = 'Tenyleges_tulajdonosi_nyilatkozat';
+        } else if (pdfType === 'osszefoglalo') {
+          templateFileName = 'Összefoglaló nyilatkozat.pdf';
+          typeLabel = 'Osszefoglalo_nyilatkozat';
+        } else if (pdfType === 'horizontalis') {
+          templateFileName = 'Horizontális követelmények nyilatkozat.pdf';
+          typeLabel = 'Horizontalis_kovetelmenyek_nyilatkozat';
+        } else if (pdfType === 'tulajdonosi_hozzajarulas') {
+          templateFileName = 'Tulajdonosi hozzájárulás nyilatkozat.pdf';
+          typeLabel = 'Tulajdonosi_hozzajarulas_nyilatkozat';
+        } else {
+          throw new Error("Ismeretlen PDF típus.");
+        }
+
+        // Adatokkal feltöltés kihagyása: Csak letöltjük a public/pdf-templates mappából a statikus fájlt
+        const response = await fetch(`/pdf-templates/${templateFileName}`);
+        if (!response.ok) throw new Error(`Nem található a fájl: /pdf-templates/${templateFileName}`);
+        const arrayBuffer = await response.arrayBuffer();
+        
+        // MAI KELTEZÉS BEÁLLÍTÁSA ÉS KHR HARDCODED KITÖLTÉS:
+        try {
+           const pdfDoc = await PDFDocument.load(arrayBuffer);
+           const form = pdfDoc.getForm();
+           
+           // Beállítjuk a specifikus adatokat minden template-nél (ami megtalálható, azt kitölti)
+           const { data: dbData } = await supabase.from('clients').select('*').eq('id', id).single();
+           const clientContext = { ...dbData, ...formValues };
+           applyAllNyilatkozatFields(form, clientContext);
+           
+           try {
+              const dateField = form.getTextField('Kelt_i');
+              if (dateField) {
+                 const todayStr = new Date().toLocaleDateString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\s/g, ''); 
+                 dateField.setText(todayStr);
+              }
+           } catch(e) {
+              console.warn("A Kelt_i mező nem található ebben a PDF-ben:", templateFileName);
+           }
+           
+           const modifiedBytes = await pdfDoc.save(); // Nincs flatten(), tehát a többi mező szerkeszthető marad
+           pdfBlob = new Blob([modifiedBytes], { type: 'application/pdf' });
+        } catch (e) {
+           console.error("Hiba a PDF módosításakor, fallback nyers PDF-re:", e);
+           pdfBlob = new Blob([arrayBuffer], { type: 'application/pdf' });
+        }
+        
+        setLastTemplateFileName(templateFileName);
       }
 
+      if (!pdfBlob) throw new Error("Hiba történt a PDF mentése során.");
+
       const safeName = formValues.name.replace(/[^a-zA-Z0-9]/g, '_') || 'ugyfel';
-      let typeLabel = '';
-      if (pdfType === 'nyilatkozat') typeLabel = 'Adatkezelesi_Nyilatkozat';
-      else if (pdfType === 'meghatalmazás') typeLabel = 'Meghatalmazas';
-      else if (pdfType === 'osszefoglalo') typeLabel = 'Osszefoglalo';
-      else if (pdfType === 'horizontalis') typeLabel = 'Horizontalis_Kovetelmenyek';
-      else if (pdfType === 'tulajdonosi_nyilatkozat') typeLabel = 'Tulajdonosi_Nyilatkozat';
-      else if (pdfType === 'tulajdonosi_hozzajarulas') typeLabel = 'Tulajdonosi_Hozzajarulas';
-      else if (pdfType === 'pep_nyilatkozat') typeLabel = 'PEP_Nyilatkozat';
-      else if (pdfType === 'khr_nyilatkozat') typeLabel = 'KHR_Nyilatkozat';
-      else if (pdfType === 'meghatalmazás_mfb_ados') typeLabel = 'MFB_Hivatalos_Meghatalmazas_Ados';
-      else if (pdfType === 'meghatalmazás_mfb_adostars') typeLabel = 'MFB_Hivatalos_Meghatalmazas_Adostars';
-      else if (pdfType === 'debug_pdf_mfb') typeLabel = 'DEBUG_PDF_Meghatalmazas';
 
       const timestamp = new Date().getTime();
       const fileName = `${typeLabel}_${safeName}_${timestamp}.pdf`;
@@ -483,10 +521,10 @@ export default function ClientDetails() {
       link.click();
       URL.revokeObjectURL(url);
       document.body.removeChild(link);
-
+        
       // Lokális, még nem feltöltött állapotú "Ghost" rekord hozzáadása a táblázathoz
       const ghostDoc = {
-        id: `local_${Date.now()}`,
+        id: `local_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         project_id: pdfProjectId,
         doc_type: pdfType,
         storage_path: '',
@@ -723,10 +761,7 @@ export default function ClientDetails() {
                    <input {...register('name')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
                 </div>
                 
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Adóstárs Neve</label>
-                   <input {...register('co_debtor')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
-                </div>
+                <div className="md:col-span-1 hidden"></div>
 
                 <div>
                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">E-mail Cím</label>
@@ -761,7 +796,62 @@ export default function ClientDetails() {
                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Adóazonosító Jel</label>
                    <input {...register('tax_id')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
                 </div>
+                
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Személyi igazolvány száma</label>
+                   <input {...register('id_card_number')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                </div>
+
+                <div className="col-span-1 md:col-span-2">
+                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Állandó lakhely</label>
+                   <input {...register('full_address')} placeholder="Irányítószám, Település, Utca, házszám" className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                </div>
              </form>
+
+             {/* Adóstárs Adatok */}
+             <div className="mt-8 border-t border-slate-100 dark:border-slate-800 pt-6">
+                 <div className="flex items-center gap-4 mb-6">
+                     <div className="p-2.5 rounded-full bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 ring-1 ring-slate-200 dark:ring-slate-700">
+                         <UserCircle className="w-6 h-6" />
+                     </div>
+                     <div>
+                         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Adóstárs adatok</h3>
+                         <p className="text-xs text-slate-500 dark:text-slate-400">Ha van adóstárs a hitelezésben</p>
+                     </div>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="col-span-1 md:col-span-2">
+                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Adóstárs Neve</label>
+                       <input {...register('co_debtor')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                    </div>
+
+                    <div>
+                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Születési Név</label>
+                       <input {...register('co_debtor_birth_name')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                    </div>
+                    
+                    <div>
+                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Anyja Neve</label>
+                       <input {...register('co_debtor_mothers_name')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                    </div>
+
+                    <div>
+                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Születési Hely</label>
+                       <input {...register('co_debtor_birth_place')} className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                    </div>
+
+                    <div>
+                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Születési Idő</label>
+                       <input {...register('co_debtor_birth_date')} type="date" className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                    </div>
+
+                    <div className="col-span-1 md:col-span-2">
+                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Állandó lakhely</label>
+                       <input {...register('co_debtor_address')} placeholder="Irányítószám, Település, Utca, házszám" className="block w-full rounded-xl border-0 py-2.5 px-4 text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 focus:ring-2 focus:ring-inset focus:ring-primary-500 transition-all" />
+                    </div>
+                 </div>
+             </div>
 
              {/* Tulajdonosok */}
              <div className="mt-8 border-t border-slate-100 dark:border-slate-800 pt-6">
@@ -1056,14 +1146,12 @@ export default function ClientDetails() {
                      onChange={e => setPdfType(e.target.value as any)}
                      className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-3 px-4 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white"
                   >
-                     <option value="nyilatkozat">Adatvédelmi Nyilatkozat</option>
-                     <option value="meghatalmazás">Meghatalmazás</option>
-                     <option value="osszefoglalo">Összefoglaló Nyilatkozat</option>
-                     <option value="horizontalis">Horizontális Követelmények</option>
-                     <option value="tulajdonosi_nyilatkozat">Tulajdonosi Nyilatkozat</option>
-                     <option value="tulajdonosi_hozzajarulas">Tulajdonosi Hozzájárulás</option>
-                     <option value="pep_nyilatkozat">Közszereplői (PEP) Nyilatkozat</option>
                      <option value="khr_nyilatkozat">KHR Nyilatkozat</option>
+                     <option value="pep_nyilatkozat">Kiemelt közszereplői nyilatkozat</option>
+                     <option value="tulajdonosi_nyilatkozat">Tényleges tulajdonosi nyilatkozat</option>
+                     <option value="osszefoglalo">Összefoglaló nyilatkozat</option>
+                     <option value="horizontalis">Horizontális követelmények nyilatkozata</option>
+                     <option value="tulajdonosi_hozzajarulas">Tulajdonosi hozzájárulás nyilatkozat</option>
                      <option value="meghatalmazás_mfb_ados" className="font-bold text-primary-600">MFB Hivatalos meghatalmazás - adós</option>
                      <option value="meghatalmazás_mfb_adostars" className="font-bold text-primary-600">MFB Hivatalos meghatalmazás - adóstárs</option>
                      <option value="debug_pdf_mfb" className="italic text-slate-500">PDF Sablon Teszt (Debug)</option>
