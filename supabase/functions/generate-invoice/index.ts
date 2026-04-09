@@ -13,13 +13,18 @@ serve(async (req: Request) => {
   }
 
   try {
+    const apiKey = Deno.env.get('SZAMLAZZ_HU_API_KEY');
+    if (!apiKey) {
+      throw new Error("A Számlázz.hu API kulcs nincs beállítva a környezeti változókban.");
+    }
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
     );
 
-    const { event_id, is_final } = await req.json();
+    const { event_id } = await req.json();
 
     if (!event_id) {
       throw new Error("Missing event_id payload.");
@@ -44,31 +49,28 @@ serve(async (req: Request) => {
       throw new Error(`Nem található a billing_event adat: ${eventError?.message}`);
     }
 
-    // 2. MOCK Számlázz.hu XML Generálás
-    // Biztonsági okokból NEM küldjük el a Számlázz.hu végpontjára, csak a konzolra logoljuk!
     const client = eventData.projects?.clients;
     const clientName = Array.isArray(client) ? client[0]?.name : client?.name;
     const amount = eventData.amount_huf;
 
-    const mockXmlPayload = `
+    // 2. KŐBE VÉSETT XML STRUKTÚRA DÍJBEKÉRŐ MÓDBAN
+    const xmlPayload = `
     <?xml version="1.0" encoding="UTF-8"?>
     <xmlszamla xmlns="http://www.szamlazz.hu/xmlszamla" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.szamlazz.hu/xmlszamla http://www.szamlazz.hu/docs/xsds/szamla.xsd">
         <beallitasok>
-            <felhasznalo>MOCK_USER</felhasznalo>
-            <jelszo>MOCK_PASSWORD</jelszo>
-            <szamlaagentkulcs>MOCK_AGENT_KEY</szamlaagentkulcs>
+            <szamlaagentkulcs>${apiKey}</szamlaagentkulcs>
             <pdfLetoltes>false</pdfLetoltes>
             <valaszVerzio>2</valaszVerzio>
         </beallitasok>
         <fejlec>
-            ${!is_final ? '<dijbekero>true</dijbekero>' : ''}
             <keltDatum>${new Date().toISOString().split('T')[0]}</keltDatum>
             <teljesitesDatum>${new Date().toISOString().split('T')[0]}</teljesitesDatum>
             <fizetesiHataridoDatum>${new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}</fizetesiHataridoDatum>
             <fizmod>Átutalás</fizmod>
             <penznem>HUF</penznem>
             <szamlaNyelve>hu</szamlaNyelve>
-            <megjegyzes>Generálva a Hiteltanácsadó platformból (MOCK)</megjegyzes>
+            <megjegyzes>Generálva a Hiteltanácsadó platformból (Díjbekérő)</megjegyzes>
+            <dijbekero>true</dijbekero>
         </fejlec>
         <vevo>
             <nev>${clientName || 'Ismeretlen ügyfél'}</nev>
@@ -93,35 +95,42 @@ serve(async (req: Request) => {
             </tetel>
         </tetelek>
     </xmlszamla>
-    `;
+    `.trim();
 
-    console.log("-----------------------------------------");
-    console.log("MOCK SZÁMLÁZZ.HU XML PAYLOAD (NINCS ELKÜLDVE):");
-    console.log(mockXmlPayload);
-    console.log("-----------------------------------------");
+    // 3. API Kérés összeállítása
+    const formData = new FormData();
+    formData.append('action-xmlagentxmlfile', new File([xmlPayload], 'invoice.xml', { type: 'text/xml' }));
 
-    // 3. Szimulált 2 másodperces hálózati késleltetés
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const szamlazzResponse = await fetch('https://www.szamlazz.hu/szamla/', {
+      method: 'POST',
+      body: formData,
+    });
 
-    // MOCK Díjbekérő vagy Végszámla sorszám generálása
-    const mockInvoiceNumber = is_final 
-        ? `VSZ-2026-${Math.floor(Math.random() * 899 + 100)}`
-        : `DB-2026-${Math.floor(Math.random() * 899 + 100)}`;
-
-    // 4. Esemény frissítése a Supabase adatbázisban
-    const updatePayload: any = {
-         sent_to_billing: true,
-         sent_at: new Date().toISOString()
-    };
-    if (is_final) {
-         updatePayload.final_invoice_number = mockInvoiceNumber;
-    } else {
-         updatePayload.invoice_number = mockInvoiceNumber;
+    // 4. API Válasz feldolgozása headderek alapján
+    const errorMessage = szamlazzResponse.headers.get('szamlaAgentErrorMessage');
+    if (errorMessage) {
+      throw new Error(decodeURIComponent(errorMessage.replace(/\\+/g, ' ')));
     }
 
+    const szamlaszam = szamlazzResponse.headers.get('szamlaAgentSzamlaszam');
+    if (!szamlaszam) {
+      const responseText = await szamlazzResponse.text();
+      let errorDetail = "Ismeretlen API hiba. (Nyers válasz: " + responseText.substring(0, 150) + ")";
+      const hibauzenetMatch = responseText.match(/<hibauzenet>(.*?)<\/hibauzenet>/i);
+      if (hibauzenetMatch && hibauzenetMatch[1]) {
+          errorDetail = hibauzenetMatch[1];
+      }
+      throw new Error(`Nem érkezett számlaszám a válaszban. Részletek: ${errorDetail}`);
+    }
+
+    // 5. Esemény frissítése a Supabase adatbázisban
     const { error: updateError } = await supabaseClient
       .from('billing_events')
-      .update(updatePayload)
+      .update({
+         sent_to_billing: true,
+         sent_at: new Date().toISOString(),
+         invoice_number: szamlaszam
+      })
       .eq('id', event_id);
 
     if (updateError) {
@@ -130,8 +139,8 @@ serve(async (req: Request) => {
 
     return new Response(JSON.stringify({ 
       success: true, 
-      invoice_number: mockInvoiceNumber, 
-      message: is_final ? "Végszámla sikeresen generálva (MOCK)." : "Díjbekérő sikeresen generálva (MOCK)."
+      invoiceId: szamlaszam,
+      invoice_number: szamlaszam 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
@@ -139,9 +148,9 @@ serve(async (req: Request) => {
 
   } catch (err: any) {
     console.error("Hiba az Edge Function futtatásakor:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ success: false, errorMessage: err.message }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
+        status: 200,
     });
   }
 });

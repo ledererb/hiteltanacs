@@ -86,7 +86,7 @@ export default function Billing() {
           ...(isFinal ? { final_invoice_number: data.invoice_number } : { invoice_number: data.invoice_number })
         } : e));
       } else {
-        alert('Ismeretlen hiba: ' + JSON.stringify(data));
+        alert('Adat- vagy Számlázz.hu hiba:\n' + (data?.errorMessage || JSON.stringify(data)));
       }
     } catch (error: any) {
       console.error(error);
