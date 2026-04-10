@@ -72,14 +72,19 @@ serve(async (req: Request) => {
             <megjegyzes>Generálva a Hiteltanácsadó platformból (Díjbekérő)</megjegyzes>
             <dijbekero>true</dijbekero>
         </fejlec>
+        <elado>
+            <bank>Teszt Bank Zrt.</bank>
+            <bankszamlaszam>11111111-22222222-33333333</bankszamlaszam>
+            <emailReplyto>info@hiteltanacsado.hu</emailReplyto>
+            <emailTargy>Díjbekérő</emailTargy>
+            <emailSzoveg>Íme a kért díjbekérő</emailSzoveg>
+        </elado>
         <vevo>
             <nev>${clientName || 'Ismeretlen ügyfél'}</nev>
-            <cim>
-                <orszag>Magyarország</orszag>
-                <irsz>1000</irsz>
-                <telepules>Tesztváros</telepules>
-                <cim>Teszt utca 1.</cim>
-            </cim>
+            <orszag>Magyarország</orszag>
+            <irsz>1000</irsz>
+            <telepules>Tesztváros</telepules>
+            <cim>Teszt utca 1.</cim>
             <email>${Array.isArray(client) ? client[0]?.email : client?.email || ''}</email>
         </vevo>
         <tetelek>
@@ -112,9 +117,17 @@ serve(async (req: Request) => {
       throw new Error(decodeURIComponent(errorMessage.replace(/\\+/g, ' ')));
     }
 
-    const szamlaszam = szamlazzResponse.headers.get('szamlaAgentSzamlaszam');
+    const responseText = await szamlazzResponse.text();
+    let szamlaszam = szamlazzResponse.headers.get('szamlaAgentSzamlaszam');
+    
     if (!szamlaszam) {
-      const responseText = await szamlazzResponse.text();
+      const szamlaszamMatch = responseText.match(/<szamlaszam>(.*?)<\/szamlaszam>/i);
+      if (szamlaszamMatch && szamlaszamMatch[1]) {
+          szamlaszam = szamlaszamMatch[1];
+      }
+    }
+
+    if (!szamlaszam) {
       let errorDetail = "Ismeretlen API hiba. (Nyers válasz: " + responseText.substring(0, 150) + ")";
       const hibauzenetMatch = responseText.match(/<hibauzenet>(.*?)<\/hibauzenet>/i);
       if (hibauzenetMatch && hibauzenetMatch[1]) {
