@@ -189,8 +189,8 @@ export interface PdfDataMapping {
 export async function generateAndUploadOfficialDocument(
   templateName: string, 
   data: PdfDataMapping,
-  projectId: string,
-  fileName: string
+  _projectId: string,
+  _fileName: string
 ): Promise<{ url?: string; blob?: Blob; error?: any }> {
   try {
     // 1. Sablon betöltése a frontend public/pdf-templates/ mappájából
@@ -238,7 +238,7 @@ export async function generateAndUploadOfficialDocument(
     const pdfBytes = await pdfDoc.save();
 
     // 6. Kliens oldali közvetlen letöltéshez generálunk egy Blob-ot
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const blob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
 
     return {
       blob: blob
@@ -427,7 +427,7 @@ export async function generateDebugPdf(templateName: string): Promise<{ blob?: B
 
     // NEM LAPOSÍTJUK (flatten), hogy az eredményként beolvasott PDF-ben kijelölhető/vizsgálható legyen
     const pdfBytes = await pdfDoc.save();
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const blob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
 
     return { blob };
   } catch (error) {

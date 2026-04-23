@@ -496,7 +496,7 @@ export default function ClientDetails() {
            }
            
            const modifiedBytes = await pdfDoc.save(); // Nincs flatten(), tehát a többi mező szerkeszthető marad
-           pdfBlob = new Blob([modifiedBytes], { type: 'application/pdf' });
+           pdfBlob = new Blob([modifiedBytes as unknown as BlobPart], { type: 'application/pdf' });
         } catch (e) {
            console.error("Hiba a PDF módosításakor, fallback nyers PDF-re:", e);
            pdfBlob = new Blob([arrayBuffer], { type: 'application/pdf' });
