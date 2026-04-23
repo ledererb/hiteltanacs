@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import clsx from 'clsx';
-import { generateProjectDocuments, generateDebugPdf, applyAllNyilatkozatFields } from '../services/pdfService';
+import { generateProjectDocuments, applyAllNyilatkozatFields } from '../services/pdfService';
 import { PDFDocument } from 'pdf-lib';
 // Removed excelService import
 
@@ -30,9 +30,9 @@ export default function ClientDetails() {
   const [pdfProjectId, setPdfProjectId] = useState('');
   const [pdfType, setPdfType] = useState<
     'osszefoglalo' | 'horizontalis' | 'tulajdonosi_nyilatkozat' | 
-    'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat' | 'meghatalmazás_mfb_ados' | 'meghatalmazás_mfb_adostars' | 'debug_pdf_mfb'
+    'tulajdonosi_hozzajarulas' | 'pep_nyilatkozat' | 'khr_nyilatkozat' | 'meghatalmazás_mfb_ados' | 'meghatalmazás_mfb_adostars'
   >('khr_nyilatkozat');
-  const [lastTemplateFileName, setLastTemplateFileName] = useState<string>('ML104U-Megbizott-penzugyi-tanacsado-meghatalmazasa_KEHOP.pdf');
+
 
   // Dokumentum Feltöltés Modal States
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -439,12 +439,7 @@ export default function ClientDetails() {
         if (!result.blob) throw new Error("Hiba a hivatalos MFB pdf generálásakor.");
         pdfBlob = result.blob;
         typeLabel = pdfType === 'meghatalmazás_mfb_ados' ? 'MFB_Hivatalos_Meghatalmazas_Ados' : 'MFB_Hivatalos_Meghatalmazas_Adostars';
-        setLastTemplateFileName('ML104U-Megbizott-penzugyi-tanacsado-meghatalmazasa_KEHOP.pdf');
-      } else if (pdfType === 'debug_pdf_mfb') {
-        const result = await generateDebugPdf(lastTemplateFileName);
-        if (!result.blob) throw new Error("Hiba a debug PDF generálásakor.");
-        pdfBlob = result.blob;
-        typeLabel = 'DEBUG_PDF_Meghatalmazas';
+
       } else {
         let templateFileName = '';
 
@@ -502,7 +497,7 @@ export default function ClientDetails() {
            pdfBlob = new Blob([arrayBuffer], { type: 'application/pdf' });
         }
         
-        setLastTemplateFileName(templateFileName);
+
       }
 
       if (!pdfBlob) throw new Error("Hiba történt a PDF mentése során.");
@@ -1141,7 +1136,6 @@ export default function ClientDetails() {
                      <option value="tulajdonosi_hozzajarulas">Tulajdonosi hozzájárulás nyilatkozat</option>
                      <option value="meghatalmazás_mfb_ados" className="font-bold text-primary-600">MFB Hivatalos meghatalmazás - adós</option>
                      <option value="meghatalmazás_mfb_adostars" className="font-bold text-primary-600">MFB Hivatalos meghatalmazás - adóstárs</option>
-                     <option value="debug_pdf_mfb" className="italic text-slate-500">PDF Sablon Teszt (Debug)</option>
                   </select>
                </div>
             </div>
@@ -1285,28 +1279,28 @@ export default function ClientDetails() {
       {/* Kivitelező Hozzáadása Modal */}
       {isContractorModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-               <h3 className="text-lg font-semibold text-slate-900">Új Kivitelező Felvitele</h3>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Új Kivitelező Felvitele</h3>
             </div>
             <div className="p-6 space-y-4">
                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Cégnév / Személy neve</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cégnév / Személy neve</label>
                   <input
                      type="text"
                      value={newContractorName}
                      onChange={e => setNewContractorName(e.target.value)}
-                     className="block w-full rounded-xl border border-slate-300 py-2.5 px-3 text-sm focus:ring-primary-500 focus:border-primary-500 shadow-sm outline-none"
+                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-2.5 px-3 text-sm focus:ring-primary-500 focus:border-primary-500 shadow-sm outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                      placeholder="Pl. Solar Expert Kft."
                      autoFocus
                   />
                </div>
                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Munkakör / Kategória</label>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Munkakör / Kategória</label>
                   <select
                      value={newContractorRole}
                      onChange={e => setNewContractorRole(e.target.value)}
-                     className="block w-full rounded-xl border border-slate-300 py-2.5 px-3 text-sm focus:ring-primary-500 focus:border-primary-500 shadow-sm bg-white outline-none"
+                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-2.5 px-3 text-sm focus:ring-primary-500 focus:border-primary-500 shadow-sm outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                   >
                      <option value="Napelem telepítő">Napelem telepítő</option>
                      <option value="Hőszivattyús szakember">Hőszivattyús szakember</option>
@@ -1315,15 +1309,15 @@ export default function ClientDetails() {
                      <option value="Egyéb szaki">Egyéb szakember</option>
                   </select>
                </div>
-               <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-lg flex items-start mt-2">
-                  <Briefcase className="w-4 h-4 mr-2 flex-shrink-0 mt-0.5" />
+               <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 border border-blue-100 dark:border-blue-800/50 text-xs p-3 rounded-lg flex items-start mt-2">
+                  <Briefcase className="w-4 h-4 mr-2 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
                   <span>Extra kivitelezők beállítása esetén a rendszer a "Beadás" fázisnál extra +20.000 Ft tételeket ad a Számlázandó összegekhez!</span>
                </div>
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
               <button 
                 onClick={() => setIsContractorModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-xl shadow-sm hover:bg-slate-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
               >
                 Mégse
               </button>
