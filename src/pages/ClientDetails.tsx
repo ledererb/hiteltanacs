@@ -37,7 +37,7 @@ export default function ClientDetails() {
   // Dokumentum Feltöltés Modal States
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
-  const [uploadDocType, setUploadDocType] = useState('Kérelem HET');
+  const [uploadDocType, setUploadDocType] = useState('het_planned');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
 
 
@@ -561,10 +561,10 @@ export default function ClientDetails() {
 
       const fileExt = uploadFile.name.split('.').pop() || 'pdf';
       let fileTypeLabel = 'Dokumentum';
-      if (uploadDocType === 'Kérelem HET') fileTypeLabel = 'Kerelem_HET';
-      if (uploadDocType === 'Záró HET') fileTypeLabel = 'Zaro_HET';
-      if (uploadDocType === 'Hiánypótlás') fileTypeLabel = 'Hianypotlas';
-      if (uploadDocType === 'Árajánlat') fileTypeLabel = 'Arajanlat';
+      if (uploadDocType === 'het_planned' || uploadDocType === 'het_start') fileTypeLabel = 'Kerelem_HET';
+      if (uploadDocType === 'het_final') fileTypeLabel = 'Zaro_HET';
+      if (uploadDocType === 'hiánypótlás') fileTypeLabel = 'Hianypotlas';
+      if (uploadDocType === 'árajánlat') fileTypeLabel = 'Arajanlat';
 
       const fileName = `${pdfProjectId}_${fileTypeLabel}_${Date.now()}.${fileExt}`;
       const newStoragePath = `${sessionData.session.user.id}/${pdfProjectId}/${fileName}`;
@@ -1125,19 +1125,6 @@ export default function ClientDetails() {
                   <div>A rendszer a letöltésnél már a <b>mentett adatokat</b> használja. Ha módosítottál űrlap mezőket, <b>először kattints a Mentés gombra</b>! Az iratot ez a modal <b>nem tölti fel a gépről</b>, csak letölti az üres kitöltött változatot aláírásra!</div>
                </div>
 
-               <div>
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Melyik projekthez kapcsolódik az irat?</label>
-                  <select
-                     value={pdfProjectId}
-                     onChange={e => setPdfProjectId(e.target.value)}
-                     className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-3 px-4 text-sm focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white"
-                  >
-                     {activeProjects.length === 0 && <option value="">Nincs mentett projekt!</option>}
-                     {activeProjects.map(p => (
-                       <option value={p.id} key={p.id}>{p.notes || `Projekt #${p.id.substring(0,8)}`}</option>
-                     ))}
-                  </select>
-               </div>
 
                <div>
                   <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Generálandó dokumentum típusa</label>
@@ -1217,10 +1204,10 @@ export default function ClientDetails() {
                      onChange={e => setUploadDocType(e.target.value)}
                      className="block w-full rounded-xl border border-slate-300 dark:border-slate-600 py-3 px-4 text-sm focus:ring-emerald-500 focus:border-emerald-500 bg-white dark:bg-slate-900 shadow-sm transition-all text-slate-900 dark:text-white"
                   >
-                     <option value="Kérelem HET">HET/ML156U - Kölcsönkérelem benyújtásához (Kezdeti+Tervezett)</option>
-                     <option value="Záró HET">HET/ML156U - Záró nyilatkozat</option>
-                     <option value="Hiánypótlás">Hiánypótlás (Kódolt PDF / Egyéb)</option>
-                     <option value="Árajánlat">Lepecsételt árajánlat</option>
+                     <option value="het_planned">HET/ML156U - Kölcsönkérelem benyújtásához (Kezdeti+Tervezett)</option>
+                     <option value="het_final">HET/ML156U - Záró nyilatkozat</option>
+                     <option value="hiánypótlás">Hiánypótlás (Kódolt PDF / Egyéb)</option>
+                     <option value="árajánlat">Lepecsételt árajánlat</option>
                   </select>
                </div>
 
